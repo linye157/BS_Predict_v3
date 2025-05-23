@@ -1,0 +1,351 @@
+from flask import Flask, request, jsonify, send_file
+from flask_cors import CORS
+import pandas as pd
+import numpy as np
+import os
+import io
+import joblib
+from pathlib import Path
+from datetime import datetime
+
+# Import modules
+from modules.data_processing import DataProcessingService
+from modules.machine_learning import MachineLearningService
+from modules.stacking_ensemble import StackingEnsembleService
+from modules.auto_ml import AutoMLService
+from modules.visualization import VisualizationService
+from modules.report import ReportService
+
+app = Flask(__name__)
+CORS(app)  # Enable CORS for all routes
+
+# Configuration
+app.config['UPLOAD_FOLDER'] = 'uploads'
+app.config['DATA_FOLDER'] = 'data'
+app.config['MODELS_FOLDER'] = 'models'
+app.config['REPORTS_FOLDER'] = 'reports'
+
+# Create necessary directories
+for folder in [app.config['UPLOAD_FOLDER'], app.config['DATA_FOLDER'], 
+               app.config['MODELS_FOLDER'], app.config['REPORTS_FOLDER']]:
+    os.makedirs(folder, exist_ok=True)
+
+# Initialize services
+data_service = DataProcessingService()
+ml_service = MachineLearningService()
+stacking_service = StackingEnsembleService()
+automl_service = AutoMLService()
+viz_service = VisualizationService()
+report_service = ReportService()
+
+# Global state storage (in production, use Redis or database)
+app_state = {
+    'train_data': None,
+    'test_data': None,
+    'models': {},
+    'current_model': None,
+    'preprocessing_params': {},
+    'training_history': []
+}
+
+@app.route('/api/health', methods=['GET'])
+def health_check():
+    """Health check endpoint"""
+    return jsonify({'status': 'healthy', 'timestamp': datetime.now().isoformat()})
+
+# Data Processing endpoints
+@app.route('/api/data/load-default', methods=['POST'])
+def load_default_data():
+    """Load default training and testing data"""
+    try:
+        result = data_service.load_default_data()
+        if result['success']:
+            app_state['train_data'] = result['train_data']
+            app_state['test_data'] = result['test_data']
+        return jsonify(result)
+    except Exception as e:
+        return jsonify({'success': False, 'message': str(e)}), 500
+
+@app.route('/api/data/upload', methods=['POST'])
+def upload_data():
+    """Upload custom dataset"""
+    try:
+        files = request.files
+        result = data_service.upload_data(files)
+        if result['success']:
+            if 'train_data' in result:
+                app_state['train_data'] = result['train_data']
+            if 'test_data' in result:
+                app_state['test_data'] = result['test_data']
+        return jsonify(result)
+    except Exception as e:
+        return jsonify({'success': False, 'message': str(e)}), 500
+
+@app.route('/api/data/preview', methods=['GET'])
+def preview_data():
+    """Get data preview and statistics"""
+    try:
+        result = data_service.get_data_preview(
+            app_state['train_data'], 
+            app_state['test_data']
+        )
+        return jsonify(result)
+    except Exception as e:
+        return jsonify({'success': False, 'message': str(e)}), 500
+
+@app.route('/api/data/preprocess', methods=['POST'])
+def preprocess_data():
+    """Apply data preprocessing"""
+    try:
+        params = request.get_json()
+        result = data_service.preprocess_data(
+            app_state['train_data'], 
+            app_state['test_data'], 
+            params
+        )
+        if result['success']:
+            app_state['train_data'] = result['train_data']
+            app_state['test_data'] = result['test_data']
+            app_state['preprocessing_params'] = params
+        return jsonify(result)
+    except Exception as e:
+        return jsonify({'success': False, 'message': str(e)}), 500
+
+@app.route('/api/data/download/<data_type>/<file_format>', methods=['GET'])
+def download_data(data_type, file_format):
+    """Download data in specified format"""
+    try:
+        data = app_state.get(f'{data_type}_data')
+        if data is None:
+            return jsonify({'error': f'No {data_type} data available'}), 404
+            
+        result = data_service.convert_data_for_download(data, file_format)
+        if result['success']:
+            return send_file(
+                io.BytesIO(result['data']),
+                as_attachment=True,
+                download_name=f'{data_type}_data.{file_format}',
+                mimetype=result['mimetype']
+            )
+        else:
+            return jsonify(result), 400
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+# Machine Learning endpoints
+@app.route('/api/ml/models', methods=['GET'])
+def get_available_models():
+    """Get list of available ML models"""
+    return jsonify(ml_service.get_available_models())
+
+@app.route('/api/ml/train', methods=['POST'])
+def train_model():
+    """Train a machine learning model"""
+    try:
+        params = request.get_json()
+        if app_state['train_data'] is None:
+            return jsonify({'success': False, 'message': 'No training data available'}), 400
+            
+        result = ml_service.train_model(
+            app_state['train_data'],
+            params
+        )
+        
+        if result['success']:
+            model_id = result['model_id']
+            app_state['models'][model_id] = result['model']
+            app_state['current_model'] = model_id
+            app_state['training_history'].append({
+                'timestamp': datetime.now().isoformat(),
+                'model_type': params.get('model_type'),
+                'model_id': model_id,
+                'metrics': result.get('metrics', {})
+            })
+        
+        return jsonify(result)
+    except Exception as e:
+        return jsonify({'success': False, 'message': str(e)}), 500
+
+@app.route('/api/ml/predict', methods=['POST'])
+def predict():
+    """Make predictions with trained model"""
+    try:
+        params = request.get_json()
+        model_id = params.get('model_id') or app_state.get('current_model')
+        
+        if not model_id or model_id not in app_state['models']:
+            return jsonify({'success': False, 'message': 'No trained model available'}), 400
+            
+        test_data = app_state.get('test_data')
+        if test_data is None:
+            return jsonify({'success': False, 'message': 'No test data available'}), 400
+            
+        result = ml_service.predict(
+            app_state['models'][model_id],
+            test_data,
+            params
+        )
+        
+        return jsonify(result)
+    except Exception as e:
+        return jsonify({'success': False, 'message': str(e)}), 500
+
+@app.route('/api/ml/evaluate', methods=['POST'])
+def evaluate_model():
+    """Evaluate model performance"""
+    try:
+        params = request.get_json()
+        model_id = params.get('model_id') or app_state.get('current_model')
+        
+        if not model_id or model_id not in app_state['models']:
+            return jsonify({'success': False, 'message': 'No trained model available'}), 400
+            
+        result = ml_service.evaluate_model(
+            app_state['models'][model_id],
+            app_state['test_data'],
+            params
+        )
+        
+        return jsonify(result)
+    except Exception as e:
+        return jsonify({'success': False, 'message': str(e)}), 500
+
+# Stacking Ensemble endpoints
+@app.route('/api/stacking/train', methods=['POST'])
+def train_stacking():
+    """Train stacking ensemble model"""
+    try:
+        params = request.get_json()
+        if app_state['train_data'] is None:
+            return jsonify({'success': False, 'message': 'No training data available'}), 400
+            
+        result = stacking_service.train_stacking_ensemble(
+            app_state['train_data'],
+            params
+        )
+        
+        if result['success']:
+            model_id = result['model_id']
+            app_state['models'][model_id] = result['model']
+            app_state['current_model'] = model_id
+        
+        return jsonify(result)
+    except Exception as e:
+        return jsonify({'success': False, 'message': str(e)}), 500
+
+# AutoML endpoints
+@app.route('/api/automl/run', methods=['POST'])
+def run_automl():
+    """Run automated machine learning"""
+    try:
+        params = request.get_json()
+        if app_state['train_data'] is None:
+            return jsonify({'success': False, 'message': 'No training data available'}), 400
+            
+        result = automl_service.run_automl(
+            app_state['train_data'],
+            app_state.get('test_data'),
+            params
+        )
+        
+        if result['success']:
+            model_id = result['model_id']
+            app_state['models'][model_id] = result['model']
+            app_state['current_model'] = model_id
+        
+        return jsonify(result)
+    except Exception as e:
+        return jsonify({'success': False, 'message': str(e)}), 500
+
+# Visualization endpoints
+@app.route('/api/visualization/data', methods=['POST'])
+def generate_data_visualization():
+    """Generate data visualization"""
+    try:
+        params = request.get_json()
+        data = app_state.get(f"{params.get('data_type', 'train')}_data")
+        
+        if data is None:
+            return jsonify({'success': False, 'message': 'No data available'}), 400
+            
+        result = viz_service.generate_data_visualization(data, params)
+        return jsonify(result)
+    except Exception as e:
+        return jsonify({'success': False, 'message': str(e)}), 500
+
+@app.route('/api/visualization/model', methods=['POST'])
+def generate_model_visualization():
+    """Generate model visualization"""
+    try:
+        params = request.get_json()
+        model_id = params.get('model_id') or app_state.get('current_model')
+        
+        if not model_id or model_id not in app_state['models']:
+            return jsonify({'success': False, 'message': 'No trained model available'}), 400
+            
+        result = viz_service.generate_model_visualization(
+            app_state['models'][model_id],
+            app_state['train_data'],
+            params
+        )
+        return jsonify(result)
+    except Exception as e:
+        return jsonify({'success': False, 'message': str(e)}), 500
+
+# Report endpoints
+@app.route('/api/reports/generate', methods=['POST'])
+def generate_report():
+    """Generate analysis report"""
+    try:
+        params = request.get_json()
+        model_id = params.get('model_id') or app_state.get('current_model')
+        
+        result = report_service.generate_report(
+            app_state['train_data'],
+            app_state['test_data'],
+            app_state['models'].get(model_id) if model_id else None,
+            app_state['training_history'],
+            params
+        )
+        
+        return jsonify(result)
+    except Exception as e:
+        return jsonify({'success': False, 'message': str(e)}), 500
+
+@app.route('/api/reports/download/<report_id>/<file_format>', methods=['GET'])
+def download_report(report_id, file_format):
+    """Download report in specified format"""
+    try:
+        result = report_service.download_report(report_id, file_format)
+        if result['success']:
+            return send_file(
+                result['file_path'],
+                as_attachment=True,
+                download_name=result['filename']
+            )
+        else:
+            return jsonify(result), 404
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+# System status endpoints
+@app.route('/api/system/status', methods=['GET'])
+def get_system_status():
+    """Get current system status"""
+    status = {
+        'train_data_loaded': app_state['train_data'] is not None,
+        'test_data_loaded': app_state['test_data'] is not None,
+        'trained_models': len(app_state['models']),
+        'current_model': app_state['current_model'],
+        'training_history': len(app_state['training_history'])
+    }
+    
+    if app_state['train_data'] is not None:
+        status['train_data_shape'] = app_state['train_data'].shape
+    if app_state['test_data'] is not None:
+        status['test_data_shape'] = app_state['test_data'].shape
+        
+    return jsonify(status)
+
+if __name__ == '__main__':
+    app.run(debug=True, host='0.0.0.0', port=5000) 
