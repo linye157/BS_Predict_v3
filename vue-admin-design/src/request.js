@@ -3,8 +3,8 @@ import { Message } from 'element-ui'
 
 // 创建axios实例
 const service = axios.create({
-  baseURL: process.env.VUE_APP_BASE_API || 'http://localhost:5000', // Flask后端地址
-  timeout: 300000, // 请求超时时间设长一些，因为ML训练可能需要时间
+  baseURL: '', // 使用空字符串作为基础URL，完全依赖Vue代理处理
+  timeout: 60000, // 增加超时时间为60秒
   headers: {
     'Content-Type': 'application/json'
   }

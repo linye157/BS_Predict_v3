@@ -1,26 +1,36 @@
 import request from '../request'
+import axios from 'axios'
 
 // 系统状态
 export const getSystemStatus = () => {
-  return request({
-    url: '/api/system/status',
-    method: 'get'
+  return axios({
+    url: 'http://127.0.0.1:5000/api/system/status',
+    method: 'get',
+    timeout: 60000,
+    headers: {
+      'Content-Type': 'application/json'
+    }
   })
 }
 
 // 数据处理相关API
 export const loadDefaultData = () => {
-  return request({
-    url: '/api/data/load-default',
-    method: 'post'
+  return axios({
+    url: 'http://127.0.0.1:5000/api/data/load-default',
+    method: 'post',
+    timeout: 60000,
+    headers: {
+      'Content-Type': 'application/json'
+    }
   })
 }
 
 export const uploadData = (formData) => {
-  return request({
-    url: '/api/data/upload',
+  return axios({
+    url: 'http://127.0.0.1:5000/api/data/upload',
     method: 'post',
     data: formData,
+    timeout: 60000,
     headers: {
       'Content-Type': 'multipart/form-data'
     }
@@ -28,57 +38,82 @@ export const uploadData = (formData) => {
 }
 
 export const getDataPreview = () => {
-  return request({
-    url: '/api/data/preview',
-    method: 'get'
+  return axios({
+    url: 'http://127.0.0.1:5000/api/data/preview',
+    method: 'get',
+    timeout: 60000,
+    headers: {
+      'Content-Type': 'application/json'
+    }
   })
 }
 
 export const preprocessData = (params) => {
-  return request({
-    url: '/api/data/preprocess',
+  return axios({
+    url: 'http://127.0.0.1:5000/api/data/preprocess',
     method: 'post',
-    data: params
+    data: params,
+    timeout: 60000,
+    headers: {
+      'Content-Type': 'application/json'
+    }
   })
 }
 
 export const downloadData = (dataType, fileFormat) => {
-  return request({
-    url: `/api/data/download/${dataType}/${fileFormat}`,
+  return axios({
+    url: `http://127.0.0.1:5000/api/data/download/${dataType}/${fileFormat}`,
     method: 'get',
-    responseType: 'blob'
+    responseType: 'blob',
+    timeout: 60000
   })
 }
 
 // 机器学习相关API
 export const getAvailableModels = () => {
-  return request({
-    url: '/api/ml/models',
-    method: 'get'
+  return axios({
+    url: 'http://127.0.0.1:5000/api/ml/models',
+    method: 'get',
+    timeout: 60000,
+    headers: {
+      'Content-Type': 'application/json'
+    }
   })
 }
 
 export const trainModel = (params) => {
-  return request({
-    url: '/api/ml/train',
+  return axios({
+    url: 'http://127.0.0.1:5000/api/ml/train',
     method: 'post',
-    data: params
+    data: params,
+    timeout: 60000,
+    headers: {
+      'Content-Type': 'application/json'
+    }
   })
 }
 
 export const predictModel = (params) => {
-  return request({
-    url: '/api/ml/predict',
+  return axios({
+    url: 'http://127.0.0.1:5000/api/ml/predict',
     method: 'post',
-    data: params
+    data: params,
+    timeout: 60000,
+    headers: {
+      'Content-Type': 'application/json'
+    }
   })
 }
 
 export const evaluateModel = (params) => {
-  return request({
-    url: '/api/ml/evaluate',
+  return axios({
+    url: 'http://127.0.0.1:5000/api/ml/evaluate',
     method: 'post',
-    data: params
+    data: params,
+    timeout: 60000,
+    headers: {
+      'Content-Type': 'application/json'
+    }
   })
 }
 

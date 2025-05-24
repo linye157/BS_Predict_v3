@@ -1,4 +1,4 @@
-# BS_Predict_v4 - Streamlit到Vue+Flask架构迁移
+# BS_Predict_v3 ---- Streamlit到Vue+Flask架构迁移
 
 这是一个将基于Streamlit的机器学习预测系统迁移到Vue+Flask架构的项目。迁移后的系统保持了原有的功能和页面布局，同时提供了更好的扩展性和维护性。
 

@@ -385,9 +385,29 @@ export default {
     async getSystemStatus() {
       try {
         const response = await getSystemStatus()
-        this.systemStatus = response
+        // axios直接调用返回的数据在response.data中
+        this.systemStatus = response.data
       } catch (error) {
         console.error('获取系统状态失败:', error)
+        
+        // 设置默认状态，避免页面显示错误
+        this.systemStatus = {
+          train_data_loaded: false,
+          test_data_loaded: false,
+          trained_models: 0,
+          current_model: null,
+          training_history: 0,
+          train_data_shape: null,
+          test_data_shape: null
+        }
+        
+        // 只在非开发环境或者特定错误时显示提示
+        this.$message({
+          message: '无法连接到后端服务，请确保服务器正在运行',
+          type: 'warning',
+          duration: 3000,
+          showClose: true
+        })
       }
     },
     
@@ -395,10 +415,13 @@ export default {
       this.loading.loadDefault = true
       try {
         const response = await loadDefaultData()
-        this.$message.success(response.message || '默认数据加载成功')
+        // axios直接调用返回的数据在response.data中
+        const data = response.data
+        this.$message.success(data.message || '默认数据加载成功')
         await this.getSystemStatus()
       } catch (error) {
         console.error('加载默认数据失败:', error)
+        this.$message.error('加载默认数据失败，请检查网络和后端服务')
       } finally {
         this.loading.loadDefault = false
       }
@@ -433,7 +456,8 @@ export default {
         })
         
         const response = await uploadData(formData)
-        this.$message.success(response.message || '数据上传成功')
+        // axios直接调用返回的数据在response.data中
+        this.$message.success(response.data.message || '数据上传成功')
         await this.getSystemStatus()
         this.$refs.upload.clearFiles()
         this.uploadFiles = []
@@ -448,7 +472,8 @@ export default {
       this.loading.preview = true
       try {
         const response = await getDataPreview()
-        this.dataPreview = response
+        // axios直接调用返回的数据在response.data中
+        this.dataPreview = response.data
       } catch (error) {
         console.error('获取数据预览失败:', error)
       } finally {
@@ -465,7 +490,8 @@ export default {
       this.loading.preprocess = true
       try {
         const response = await preprocessData(this.preprocessForm)
-        this.$message.success(response.message || '数据预处理完成')
+        // axios直接调用返回的数据在response.data中
+        this.$message.success(response.data.message || '数据预处理完成')
         await this.getSystemStatus()
         await this.getDataPreview()
       } catch (error) {

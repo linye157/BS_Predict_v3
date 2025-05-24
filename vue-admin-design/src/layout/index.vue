@@ -15,6 +15,7 @@
       </div>
       <div class="main-content">
         <el-scrollbar wrap-class="scrollbar">
+          <ServerStatus />
           <MainView />
         </el-scrollbar>
       </div>
@@ -28,6 +29,7 @@ import HeaderBar from './components/HeaderBar/index'
 import SideMenu from './components/SideMenu/index'
 import TagsNav from './components/TagsView/index'
 import MainView from './components/MainView/index'
+import ServerStatus from '@/components/ServerStatus'
 import Logo from '../assets/img/logo.png'
 import LogoIcon from '../assets/img/logo-icon.png'
 
@@ -35,7 +37,7 @@ const RESIZE_WIDTH = 1440
 
 export default {
   name: 'Layout',
-  components: { HeaderBar, SideMenu, TagsNav, MainView },
+  components: { HeaderBar, SideMenu, TagsNav, MainView, ServerStatus },
   computed: {
     ...mapGetters('app', ['collapsed']),
     imgSrc() {

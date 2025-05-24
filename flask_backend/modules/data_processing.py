@@ -20,14 +20,14 @@ class DataProcessingService:
             
             if self.train_data_path.exists():
                 train_data = pd.read_excel(self.train_data_path)
-                result['train_data'] = train_data
+                result['train_data'] = train_data  # 这个会在app.py中存储到app_state
                 result['message'] += f"训练数据加载成功: {train_data.shape[0]} 行, {train_data.shape[1]} 列. "
             else:
                 result['message'] += f"未找到默认训练数据文件: {self.train_data_path}. "
                 
             if self.test_data_path.exists():
                 test_data = pd.read_excel(self.test_data_path)
-                result['test_data'] = test_data
+                result['test_data'] = test_data  # 这个会在app.py中存储到app_state
                 result['message'] += f"测试数据加载成功: {test_data.shape[0]} 行, {test_data.shape[1]} 列. "
             else:
                 result['message'] += f"未找到默认测试数据文件: {self.test_data_path}. "
@@ -71,25 +71,33 @@ class DataProcessingService:
         
         try:
             if train_data is not None:
+                # 获取数值列
+                numeric_columns = train_data.select_dtypes(include=[np.number]).columns.tolist()
+                
                 result['train_preview'] = {
-                    'shape': train_data.shape,
+                    'shape': list(train_data.shape),
                     'head': train_data.head(10).to_dict('records'),
                     'columns': train_data.columns.tolist(),
-                    'dtypes': train_data.dtypes.to_dict(),
-                    'description': train_data.describe().to_dict(),
-                    'missing_values': train_data.isnull().sum().to_dict(),
-                    'missing_percentage': (train_data.isnull().sum() / len(train_data) * 100).to_dict()
+                    'numeric_columns': numeric_columns,
+                    'dtypes': {col: str(dtype) for col, dtype in train_data.dtypes.items()},
+                    'description': train_data.describe().fillna(0).to_dict(),
+                    'missing_values': {col: int(count) for col, count in train_data.isnull().sum().items()},
+                    'missing_percentage': {col: float(pct) for col, pct in (train_data.isnull().sum() / len(train_data) * 100).items()}
                 }
             
             if test_data is not None:
+                # 获取数值列
+                numeric_columns = test_data.select_dtypes(include=[np.number]).columns.tolist()
+                
                 result['test_preview'] = {
-                    'shape': test_data.shape,
+                    'shape': list(test_data.shape),
                     'head': test_data.head(10).to_dict('records'),
                     'columns': test_data.columns.tolist(),
-                    'dtypes': test_data.dtypes.to_dict(),
-                    'description': test_data.describe().to_dict(),
-                    'missing_values': test_data.isnull().sum().to_dict(),
-                    'missing_percentage': (test_data.isnull().sum() / len(test_data) * 100).to_dict()
+                    'numeric_columns': numeric_columns,
+                    'dtypes': {col: str(dtype) for col, dtype in test_data.dtypes.items()},
+                    'description': test_data.describe().fillna(0).to_dict(),
+                    'missing_values': {col: int(count) for col, count in test_data.isnull().sum().items()},
+                    'missing_percentage': {col: float(pct) for col, pct in (test_data.isnull().sum() / len(test_data) * 100).items()}
                 }
             
             return result

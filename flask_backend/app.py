@@ -60,9 +60,21 @@ def load_default_data():
     try:
         result = data_service.load_default_data()
         if result['success']:
-            app_state['train_data'] = result['train_data']
-            app_state['test_data'] = result['test_data']
-        return jsonify(result)
+            # 存储DataFrame到app_state
+            if 'train_data' in result:
+                app_state['train_data'] = result['train_data']
+            if 'test_data' in result:
+                app_state['test_data'] = result['test_data']
+            
+            # 从result中移除DataFrame对象，只返回消息
+            response = {
+                'success': result['success'],
+                'message': result['message']
+            }
+        else:
+            response = result
+        
+        return jsonify(response)
     except Exception as e:
         return jsonify({'success': False, 'message': str(e)}), 500
 
@@ -73,11 +85,21 @@ def upload_data():
         files = request.files
         result = data_service.upload_data(files)
         if result['success']:
+            # 存储DataFrame到app_state
             if 'train_data' in result:
                 app_state['train_data'] = result['train_data']
             if 'test_data' in result:
                 app_state['test_data'] = result['test_data']
-        return jsonify(result)
+            
+            # 从result中移除DataFrame对象，只返回消息
+            response = {
+                'success': result['success'],
+                'message': result['message']
+            }
+        else:
+            response = result
+        
+        return jsonify(response)
     except Exception as e:
         return jsonify({'success': False, 'message': str(e)}), 500
 
@@ -104,10 +126,22 @@ def preprocess_data():
             params
         )
         if result['success']:
-            app_state['train_data'] = result['train_data']
-            app_state['test_data'] = result['test_data']
+            # 存储DataFrame到app_state
+            if 'train_data' in result:
+                app_state['train_data'] = result['train_data']
+            if 'test_data' in result:
+                app_state['test_data'] = result['test_data']
             app_state['preprocessing_params'] = params
-        return jsonify(result)
+            
+            # 从result中移除DataFrame对象，只返回消息
+            response = {
+                'success': result['success'],
+                'message': result['message']
+            }
+        else:
+            response = result
+        
+        return jsonify(response)
     except Exception as e:
         return jsonify({'success': False, 'message': str(e)}), 500
 
