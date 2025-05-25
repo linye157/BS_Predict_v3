@@ -1,11 +1,11 @@
 import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
+import matplotlib
 import seaborn as sns
-import plotly.express as px
-import plotly.graph_objects as go
-import plotly.figure_factory as ff
-from plotly.subplots import make_subplots
+
+# Font setup removed - using default matplotlib fonts
+# Plotly imports removed - using only Matplotlib
 import base64
 import io
 import json
@@ -26,29 +26,25 @@ class VisualizationService:
         try:
             viz_type = params.get('type', 'distribution')
             columns = params.get('columns', data.columns.tolist())
-            chart_type = params.get('chart_type', 'plotly')  # 'plotly' or 'matplotlib'
+            chart_type = params.get('chart_type', 'matplotlib')  # Only matplotlib supported
             
-            if viz_type == 'distribution':
-                return self._generate_distribution_plots(data, columns, chart_type)
-            elif viz_type == 'correlation':
+            if viz_type == 'correlation':
                 return self._generate_correlation_matrix(data, columns, chart_type)
             elif viz_type == 'scatter':
                 return self._generate_scatter_plots(data, params, chart_type)
             elif viz_type == 'histogram':
                 return self._generate_histograms(data, columns, chart_type)
-            elif viz_type == 'box':
-                return self._generate_box_plots(data, columns, chart_type)
             else:
-                return {'success': False, 'message': f'不支持的可视化类型: {viz_type}'}
+                return {'success': False, 'message': f'Unsupported visualization type: {viz_type}'}
                 
         except Exception as e:
-            return {'success': False, 'message': f'生成数据可视化失败: {str(e)}'}
+                            return {'success': False, 'message': f'Failed to generate data visualization: {str(e)}'}
     
     def generate_model_visualization(self, model_info, train_data, params):
         """Generate model visualization"""
         try:
             viz_type = params.get('type', 'prediction')
-            chart_type = params.get('chart_type', 'plotly')
+            chart_type = params.get('chart_type', 'matplotlib')  # Only matplotlib supported
             
             if viz_type == 'prediction':
                 return self._generate_prediction_plots(model_info, train_data, chart_type)
@@ -59,126 +55,54 @@ class VisualizationService:
             elif viz_type == 'learning_curve':
                 return self._generate_learning_curve(model_info, train_data, chart_type)
             else:
-                return {'success': False, 'message': f'不支持的模型可视化类型: {viz_type}'}
+                return {'success': False, 'message': f'Unsupported model visualization type: {viz_type}'}
                 
         except Exception as e:
-            return {'success': False, 'message': f'生成模型可视化失败: {str(e)}'}
+            return {'success': False, 'message': f'Failed to generate model visualization: {str(e)}'}
     
-    def _generate_distribution_plots(self, data, columns, chart_type):
-        """Generate distribution plots for numeric columns"""
-        numeric_columns = data.select_dtypes(include=[np.number]).columns
-        selected_columns = [col for col in columns if col in numeric_columns][:6]  # Limit to 6 columns
-        
-        if chart_type == 'plotly':
-            fig = make_subplots(
-                rows=2, cols=3,
-                subplot_titles=selected_columns,
-                specs=[[{"secondary_y": False} for _ in range(3)] for _ in range(2)]
-            )
-            
-            for i, col in enumerate(selected_columns):
-                row = (i // 3) + 1
-                col_num = (i % 3) + 1
-                
-                fig.add_trace(
-                    go.Histogram(x=data[col], name=col, showlegend=False),
-                    row=row, col=col_num
-                )
-            
-            fig.update_layout(
-                title="数据分布图",
-                height=600,
-                showlegend=False
-            )
-            
-            return {
-                'success': True,
-                'chart_data': fig.to_json(),
-                'chart_type': 'plotly'
-            }
-        else:
-            # Matplotlib version
-            fig, axes = plt.subplots(2, 3, figsize=(15, 10))
-            fig.suptitle('数据分布图', fontsize=16)
-            
-            for i, col in enumerate(selected_columns):
-                row = i // 3
-                col_num = i % 3
-                axes[row, col_num].hist(data[col].dropna(), bins=30, alpha=0.7)
-                axes[row, col_num].set_title(col)
-                axes[row, col_num].set_xlabel('Value')
-                axes[row, col_num].set_ylabel('Frequency')
-            
-            # Hide empty subplots
-            for i in range(len(selected_columns), 6):
-                row = i // 3
-                col_num = i % 3
-                axes[row, col_num].set_visible(False)
-            
-            plt.tight_layout()
-            
-            # Convert to base64
-            img_buffer = io.BytesIO()
-            plt.savefig(img_buffer, format='png', dpi=300, bbox_inches='tight')
-            img_buffer.seek(0)
-            img_base64 = base64.b64encode(img_buffer.getvalue()).decode()
-            plt.close()
-            
-            return {
-                'success': True,
-                'chart_data': img_base64,
-                'chart_type': 'matplotlib'
-            }
+
     
     def _generate_correlation_matrix(self, data, columns, chart_type):
         """Generate correlation matrix"""
         numeric_data = data.select_dtypes(include=[np.number])
+        
+        if numeric_data.empty:
+            return {'success': False, 'message': 'No numeric columns available for correlation matrix'}
+        
+        # 如果用户选择了特定列，只使用这些列
+        if columns and len(columns) > 0:
+            # 确保选择的列都是数值列
+            selected_columns = [col for col in columns if col in numeric_data.columns]
+            if len(selected_columns) == 0:
+                return {'success': False, 'message': 'No valid numeric columns selected'}
+            numeric_data = numeric_data[selected_columns]
+        
+        # 计算相关性矩阵
         corr_matrix = numeric_data.corr()
         
-        if chart_type == 'plotly':
-            fig = go.Figure(data=go.Heatmap(
-                z=corr_matrix.values,
-                x=corr_matrix.columns,
-                y=corr_matrix.columns,
-                colorscale='RdBu',
-                zmid=0,
-                text=np.round(corr_matrix.values, 2),
-                texttemplate="%{text}",
-                textfont={"size": 10},
-                hoverongaps=False
-            ))
-            
-            fig.update_layout(
-                title="特征相关性矩阵",
-                width=800,
-                height=800
-            )
-            
-            return {
-                'success': True,
-                'chart_data': fig.to_json(),
-                'chart_type': 'plotly'
-            }
-        else:
-            # Matplotlib version
-            plt.figure(figsize=(12, 10))
-            sns.heatmap(corr_matrix, annot=True, cmap='coolwarm', center=0,
-                       square=True, linewidths=0.5, cbar_kws={"shrink": .5})
-            plt.title('特征相关性矩阵')
-            plt.tight_layout()
-            
-            # Convert to base64
-            img_buffer = io.BytesIO()
-            plt.savefig(img_buffer, format='png', dpi=300, bbox_inches='tight')
-            img_buffer.seek(0)
-            img_base64 = base64.b64encode(img_buffer.getvalue()).decode()
-            plt.close()
-            
-            return {
-                'success': True,
-                'chart_data': img_base64,
-                'chart_type': 'matplotlib'
-            }
+        # 检查是否有有效的相关性数据
+        if corr_matrix.empty or corr_matrix.isna().all().all():
+            return {'success': False, 'message': 'Cannot calculate correlation matrix, data may contain too many missing values'}
+        
+        # Matplotlib version
+        plt.figure(figsize=(12, 10))
+        sns.heatmap(corr_matrix, annot=True, cmap='coolwarm', center=0,
+                   square=True, linewidths=0.5, cbar_kws={"shrink": .5})
+        plt.title('Feature Correlation Matrix')
+        plt.tight_layout()
+        
+        # Convert to base64
+        img_buffer = io.BytesIO()
+        plt.savefig(img_buffer, format='png', dpi=300, bbox_inches='tight')
+        img_buffer.seek(0)
+        img_base64 = base64.b64encode(img_buffer.getvalue()).decode()
+        plt.close()
+        
+        return {
+            'success': True,
+            'chart_data': img_base64,
+            'chart_type': 'matplotlib'
+        }
     
     def _generate_scatter_plots(self, data, params, chart_type):
         """Generate scatter plots"""
@@ -189,87 +113,104 @@ class VisualizationService:
             # Use first two numeric columns
             numeric_cols = data.select_dtypes(include=[np.number]).columns
             if len(numeric_cols) < 2:
-                return {'success': False, 'message': '需要至少两个数值列来生成散点图'}
+                return {'success': False, 'message': 'Need at least two numeric columns to generate scatter plot'}
             x_col, y_col = numeric_cols[0], numeric_cols[1]
         
-        if chart_type == 'plotly':
-            fig = px.scatter(data, x=x_col, y=y_col, title=f'{x_col} vs {y_col}')
-            fig.update_traces(marker=dict(size=8, opacity=0.7))
-            
-            return {
-                'success': True,
-                'chart_data': fig.to_json(),
-                'chart_type': 'plotly'
-            }
-        else:
-            # Matplotlib version
-            plt.figure(figsize=(10, 6))
-            plt.scatter(data[x_col], data[y_col], alpha=0.7)
-            plt.xlabel(x_col)
-            plt.ylabel(y_col)
-            plt.title(f'{x_col} vs {y_col}')
-            plt.grid(True, alpha=0.3)
-            plt.tight_layout()
-            
-            # Convert to base64
-            img_buffer = io.BytesIO()
-            plt.savefig(img_buffer, format='png', dpi=300, bbox_inches='tight')
-            img_buffer.seek(0)
-            img_base64 = base64.b64encode(img_buffer.getvalue()).decode()
-            plt.close()
-            
-            return {
-                'success': True,
-                'chart_data': img_base64,
-                'chart_type': 'matplotlib'
-            }
+        # 检查列是否存在
+        if x_col not in data.columns or y_col not in data.columns:
+            return {'success': False, 'message': f'Specified columns do not exist: {x_col} or {y_col}'}
+        
+        # 清理数据，移除NaN值
+        clean_data = data[[x_col, y_col]].dropna()
+        if len(clean_data) == 0:
+            return {'success': False, 'message': 'No valid data points available for scatter plot'}
+        
+        # Matplotlib version
+        plt.figure(figsize=(10, 6))
+        plt.scatter(clean_data[x_col], clean_data[y_col], alpha=0.7, edgecolors='black', linewidth=0.5)
+        plt.xlabel(x_col)
+        plt.ylabel(y_col)
+        plt.title(f'{x_col} vs {y_col}')
+        plt.grid(True, alpha=0.3)
+        plt.tight_layout()
+        
+        # Convert to base64
+        img_buffer = io.BytesIO()
+        plt.savefig(img_buffer, format='png', dpi=300, bbox_inches='tight')
+        img_buffer.seek(0)
+        img_base64 = base64.b64encode(img_buffer.getvalue()).decode()
+        plt.close()
+        
+        return {
+            'success': True,
+            'chart_data': img_base64,
+            'chart_type': 'matplotlib'
+        }
+    
+
     
     def _generate_histograms(self, data, columns, chart_type):
-        """Generate histograms"""
-        return self._generate_distribution_plots(data, columns, chart_type)
-    
-    def _generate_box_plots(self, data, columns, chart_type):
-        """Generate box plots"""
+        """Generate histograms for data distribution"""
         numeric_columns = data.select_dtypes(include=[np.number]).columns
-        selected_columns = [col for col in columns if col in numeric_columns][:6]
+        selected_columns = [col for col in columns if col in numeric_columns][:6]  # Limit to 6 columns
         
-        if chart_type == 'plotly':
-            fig = go.Figure()
+        if len(selected_columns) == 0:
+            return {'success': False, 'message': 'No numeric columns available for histogram visualization'}
+        
+        # Calculate subplot layout
+        n_cols = min(3, len(selected_columns))
+        n_rows = (len(selected_columns) + n_cols - 1) // n_cols
+        
+        # Matplotlib version
+        fig, axes = plt.subplots(n_rows, n_cols, figsize=(15, n_rows * 5))
+        fig.suptitle('Data Distribution Histograms', fontsize=16)
+        
+        # Ensure axes is always 2D array
+        if n_rows == 1 and n_cols == 1:
+            axes = np.array([[axes]])
+        elif n_rows == 1:
+            axes = axes.reshape(1, -1)
+        elif n_cols == 1:
+            axes = axes.reshape(-1, 1)
+        
+        for i, col in enumerate(selected_columns):
+            row = i // n_cols
+            col_num = i % n_cols
+            col_data = data[col].dropna()
             
-            for col in selected_columns:
-                fig.add_trace(go.Box(y=data[col], name=col))
-            
-            fig.update_layout(
-                title="箱线图",
-                yaxis_title="Value",
-                height=600
-            )
-            
-            return {
-                'success': True,
-                'chart_data': fig.to_json(),
-                'chart_type': 'plotly'
-            }
-        else:
-            # Matplotlib version
-            plt.figure(figsize=(12, 6))
-            data[selected_columns].boxplot()
-            plt.title('箱线图')
-            plt.xticks(rotation=45)
-            plt.tight_layout()
-            
-            # Convert to base64
-            img_buffer = io.BytesIO()
-            plt.savefig(img_buffer, format='png', dpi=300, bbox_inches='tight')
-            img_buffer.seek(0)
-            img_base64 = base64.b64encode(img_buffer.getvalue()).decode()
-            plt.close()
-            
-            return {
-                'success': True,
-                'chart_data': img_base64,
-                'chart_type': 'matplotlib'
-            }
+            if len(col_data) > 0:
+                axes[row, col_num].hist(col_data, bins=30, alpha=0.7, edgecolor='black', color='skyblue')
+                axes[row, col_num].set_title(f'{col} Distribution')
+                axes[row, col_num].set_xlabel('Value')
+                axes[row, col_num].set_ylabel('Frequency')
+                axes[row, col_num].grid(True, alpha=0.3)
+                
+                # Add statistics text
+                mean_val = col_data.mean()
+                std_val = col_data.std()
+                axes[row, col_num].axvline(mean_val, color='red', linestyle='--', alpha=0.7, label=f'Mean: {mean_val:.2f}')
+                axes[row, col_num].legend()
+        
+        # Hide empty subplots
+        for i in range(len(selected_columns), n_rows * n_cols):
+            row = i // n_cols
+            col_num = i % n_cols
+            axes[row, col_num].set_visible(False)
+        
+        plt.tight_layout()
+        
+        # Convert to base64
+        img_buffer = io.BytesIO()
+        plt.savefig(img_buffer, format='png', dpi=300, bbox_inches='tight')
+        img_buffer.seek(0)
+        img_base64 = base64.b64encode(img_buffer.getvalue()).decode()
+        plt.close()
+        
+        return {
+            'success': True,
+            'chart_data': img_base64,
+            'chart_type': 'matplotlib'
+        }
     
     def _generate_prediction_plots(self, model_info, train_data, chart_type):
         """Generate prediction vs actual plots"""
@@ -291,78 +232,42 @@ class VisualizationService:
                     y_pred = model[target_col].predict(X)
                     y_true = y_actual[target_col]
                 
-                if chart_type == 'plotly':
-                    fig = go.Figure()
-                    
-                    # Scatter plot
-                    fig.add_trace(go.Scatter(
-                        x=y_true,
-                        y=y_pred,
-                        mode='markers',
-                        name='Predictions',
-                        marker=dict(size=8, opacity=0.7)
-                    ))
-                    
-                    # Perfect prediction line
-                    min_val = min(y_true.min(), y_pred.min())
-                    max_val = max(y_true.max(), y_pred.max())
-                    fig.add_trace(go.Scatter(
-                        x=[min_val, max_val],
-                        y=[min_val, max_val],
-                        mode='lines',
-                        name='Perfect Prediction',
-                        line=dict(color='red', dash='dash')
-                    ))
-                    
-                    fig.update_layout(
-                        title=f'预测值 vs 实际值 - {target_col}',
-                        xaxis_title='实际值',
-                        yaxis_title='预测值',
-                        width=600,
-                        height=500
-                    )
-                    
-                    results[target_col] = {
-                        'chart_data': fig.to_json(),
-                        'chart_type': 'plotly'
-                    }
-                else:
-                    # Matplotlib version
-                    plt.figure(figsize=(8, 6))
-                    plt.scatter(y_true, y_pred, alpha=0.7)
-                    
-                    # Perfect prediction line
-                    min_val = min(y_true.min(), y_pred.min())
-                    max_val = max(y_true.max(), y_pred.max())
-                    plt.plot([min_val, max_val], [min_val, max_val], 'r--', label='Perfect Prediction')
-                    
-                    plt.xlabel('实际值')
-                    plt.ylabel('预测值')
-                    plt.title(f'预测值 vs 实际值 - {target_col}')
-                    plt.legend()
-                    plt.grid(True, alpha=0.3)
-                    plt.tight_layout()
-                    
-                    # Convert to base64
-                    img_buffer = io.BytesIO()
-                    plt.savefig(img_buffer, format='png', dpi=300, bbox_inches='tight')
-                    img_buffer.seek(0)
-                    img_base64 = base64.b64encode(img_buffer.getvalue()).decode()
-                    plt.close()
-                    
-                    results[target_col] = {
-                        'chart_data': img_base64,
-                        'chart_type': 'matplotlib'
-                    }
+                # Matplotlib version
+                plt.figure(figsize=(8, 6))
+                plt.scatter(y_true, y_pred, alpha=0.7, edgecolors='black', linewidth=0.5)
+                
+                # Perfect prediction line
+                min_val = min(y_true.min(), y_pred.min())
+                max_val = max(y_true.max(), y_pred.max())
+                plt.plot([min_val, max_val], [min_val, max_val], 'r--', label='Perfect Prediction')
+                
+                plt.xlabel('Actual Values')
+                plt.ylabel('Predicted Values')
+                plt.title(f'Predicted vs Actual - {target_col}')
+                plt.legend()
+                plt.grid(True, alpha=0.3)
+                plt.tight_layout()
+                
+                # Convert to base64
+                img_buffer = io.BytesIO()
+                plt.savefig(img_buffer, format='png', dpi=300, bbox_inches='tight')
+                img_buffer.seek(0)
+                img_base64 = base64.b64encode(img_buffer.getvalue()).decode()
+                plt.close()
+                
+                results[target_col] = {
+                    'chart_data': img_base64,
+                    'chart_type': 'matplotlib'
+                }
             
             return {
                 'success': True,
                 'results': results,
-                'message': '预测图生成完成'
+                'message': 'Prediction plots generated successfully'
             }
             
         except Exception as e:
-            return {'success': False, 'message': f'生成预测图失败: {str(e)}'}
+            return {'success': False, 'message': f'Failed to generate prediction plots: {str(e)}'}
     
     def _generate_residual_plots(self, model_info, train_data, chart_type):
         """Generate residual plots"""
@@ -386,63 +291,37 @@ class VisualizationService:
                 
                 residuals = y_true - y_pred
                 
-                if chart_type == 'plotly':
-                    fig = go.Figure()
-                    
-                    fig.add_trace(go.Scatter(
-                        x=y_pred,
-                        y=residuals,
-                        mode='markers',
-                        name='Residuals',
-                        marker=dict(size=8, opacity=0.7)
-                    ))
-                    
-                    # Zero line
-                    fig.add_hline(y=0, line_dash="dash", line_color="red")
-                    
-                    fig.update_layout(
-                        title=f'残差图 - {target_col}',
-                        xaxis_title='预测值',
-                        yaxis_title='残差',
-                        width=600,
-                        height=500
-                    )
-                    
-                    results[target_col] = {
-                        'chart_data': fig.to_json(),
-                        'chart_type': 'plotly'
-                    }
-                else:
-                    # Matplotlib version
-                    plt.figure(figsize=(8, 6))
-                    plt.scatter(y_pred, residuals, alpha=0.7)
-                    plt.axhline(y=0, color='r', linestyle='--')
-                    plt.xlabel('预测值')
-                    plt.ylabel('残差')
-                    plt.title(f'残差图 - {target_col}')
-                    plt.grid(True, alpha=0.3)
-                    plt.tight_layout()
-                    
-                    # Convert to base64
-                    img_buffer = io.BytesIO()
-                    plt.savefig(img_buffer, format='png', dpi=300, bbox_inches='tight')
-                    img_buffer.seek(0)
-                    img_base64 = base64.b64encode(img_buffer.getvalue()).decode()
-                    plt.close()
-                    
-                    results[target_col] = {
-                        'chart_data': img_base64,
-                        'chart_type': 'matplotlib'
-                    }
+                # Matplotlib version
+                plt.figure(figsize=(8, 6))
+                plt.scatter(y_pred, residuals, alpha=0.7, edgecolors='black', linewidth=0.5)
+                plt.axhline(y=0, color='r', linestyle='--', label='Zero Line')
+                plt.xlabel('Predicted Values')
+                plt.ylabel('Residuals')
+                plt.title(f'Residual Plot - {target_col}')
+                plt.legend()
+                plt.grid(True, alpha=0.3)
+                plt.tight_layout()
+                
+                # Convert to base64
+                img_buffer = io.BytesIO()
+                plt.savefig(img_buffer, format='png', dpi=300, bbox_inches='tight')
+                img_buffer.seek(0)
+                img_base64 = base64.b64encode(img_buffer.getvalue()).decode()
+                plt.close()
+                
+                results[target_col] = {
+                    'chart_data': img_base64,
+                    'chart_type': 'matplotlib'
+                }
             
             return {
                 'success': True,
                 'results': results,
-                'message': '残差图生成完成'
+                'message': 'Residual plots generated successfully'
             }
             
         except Exception as e:
-            return {'success': False, 'message': f'生成残差图失败: {str(e)}'}
+            return {'success': False, 'message': f'Failed to generate residual plots: {str(e)}'}
     
     def _generate_feature_importance(self, model_info, chart_type):
         """Generate feature importance plots"""
@@ -470,60 +349,40 @@ class VisualizationService:
                     'importance': importance
                 }).sort_values('importance', ascending=False).head(20)  # Top 20 features
                 
-                if chart_type == 'plotly':
-                    fig = go.Figure(data=go.Bar(
-                        x=importance_df['importance'],
-                        y=importance_df['feature'],
-                        orientation='h'
-                    ))
-                    
-                    fig.update_layout(
-                        title=f'特征重要性 - {target_col}',
-                        xaxis_title='重要性',
-                        yaxis_title='特征',
-                        height=600,
-                        yaxis={'categoryorder': 'total ascending'}
-                    )
-                    
-                    results[target_col] = {
-                        'chart_data': fig.to_json(),
-                        'chart_type': 'plotly',
-                        'importance_data': importance_df.to_dict('records')
-                    }
-                else:
-                    # Matplotlib version
-                    plt.figure(figsize=(10, 8))
-                    plt.barh(range(len(importance_df)), importance_df['importance'])
-                    plt.yticks(range(len(importance_df)), importance_df['feature'])
-                    plt.xlabel('重要性')
-                    plt.title(f'特征重要性 - {target_col}')
-                    plt.gca().invert_yaxis()
-                    plt.tight_layout()
-                    
-                    # Convert to base64
-                    img_buffer = io.BytesIO()
-                    plt.savefig(img_buffer, format='png', dpi=300, bbox_inches='tight')
-                    img_buffer.seek(0)
-                    img_base64 = base64.b64encode(img_buffer.getvalue()).decode()
-                    plt.close()
-                    
-                    results[target_col] = {
-                        'chart_data': img_base64,
-                        'chart_type': 'matplotlib',
-                        'importance_data': importance_df.to_dict('records')
-                    }
+                # Matplotlib version
+                plt.figure(figsize=(10, 8))
+                plt.barh(range(len(importance_df)), importance_df['importance'], alpha=0.7, edgecolor='black')
+                plt.yticks(range(len(importance_df)), importance_df['feature'])
+                plt.xlabel('Importance')
+                plt.title(f'Feature Importance - {target_col}')
+                plt.gca().invert_yaxis()
+                plt.grid(True, alpha=0.3, axis='x')
+                plt.tight_layout()
+                
+                # Convert to base64
+                img_buffer = io.BytesIO()
+                plt.savefig(img_buffer, format='png', dpi=300, bbox_inches='tight')
+                img_buffer.seek(0)
+                img_base64 = base64.b64encode(img_buffer.getvalue()).decode()
+                plt.close()
+                
+                results[target_col] = {
+                    'chart_data': img_base64,
+                    'chart_type': 'matplotlib',
+                    'importance_data': importance_df.to_dict('records')
+                }
             
             if not results:
-                return {'success': False, 'message': '模型不支持特征重要性分析'}
+                return {'success': False, 'message': 'Model does not support feature importance analysis'}
             
             return {
                 'success': True,
                 'results': results,
-                'message': '特征重要性图生成完成'
+                'message': 'Feature importance plots generated successfully'
             }
             
         except Exception as e:
-            return {'success': False, 'message': f'生成特征重要性图失败: {str(e)}'}
+            return {'success': False, 'message': f'Failed to generate feature importance plot: {str(e)}'}
     
     def _generate_learning_curve(self, model_info, train_data, chart_type):
         """Generate learning curve (simplified version)"""
@@ -531,5 +390,5 @@ class VisualizationService:
         # In a full implementation, you would track training history
         return {
             'success': False,
-            'message': '学习曲线功能暂未实现，需要在训练过程中记录学习历史'
+            'message': 'Learning curve feature not yet implemented, requires recording learning history during training'
         } 

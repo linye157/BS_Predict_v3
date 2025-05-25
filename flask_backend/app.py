@@ -56,6 +56,8 @@ def health_check():
     """Health check endpoint"""
     return jsonify({'status': 'healthy', 'timestamp': datetime.now().isoformat()})
 
+
+
 # Data Processing endpoints
 @app.route('/api/data/load-default', methods=['POST'])
 def load_default_data():

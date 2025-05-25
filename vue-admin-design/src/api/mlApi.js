@@ -205,18 +205,28 @@ export const runAutoML = (params) => {
 
 // 可视化相关API
 export const generateDataVisualization = (params) => {
-  return request({
+  return api({
     url: '/api/visualization/data',
     method: 'post',
     data: params
   })
+  .then(response => response.data)
+  .catch(error => {
+    console.error('生成数据可视化失败:', error);
+    return { success: false, message: error.message || '生成数据可视化失败' };
+  })
 }
 
 export const generateModelVisualization = (params) => {
-  return request({
+  return api({
     url: '/api/visualization/model',
     method: 'post',
     data: params
+  })
+  .then(response => response.data)
+  .catch(error => {
+    console.error('生成模型可视化失败:', error);
+    return { success: false, message: error.message || '生成模型可视化失败' };
   })
 }
 

@@ -3,6 +3,17 @@
     <div class="page-header">
       <h2>可视化分析</h2>
       <p>数据可视化、模型可视化、分析结果可视化</p>
+      <div class="header-actions">
+        <el-button 
+          type="primary" 
+          size="small" 
+          @click="refreshData"
+          :loading="loading.refresh"
+        >
+          刷新数据
+        </el-button>
+
+      </div>
     </div>
 
     <!-- 可视化配置 -->
@@ -17,23 +28,37 @@
           <el-form :model="dataVizForm" label-width="120px">
             <el-form-item label="可视化类型">
               <el-select v-model="dataVizForm.type" @change="onDataVizTypeChange">
-                <el-option label="数据分布图" value="distribution" />
                 <el-option label="相关性矩阵" value="correlation" />
                 <el-option label="散点图" value="scatter" />
-                <el-option label="箱线图" value="box" />
-                <el-option label="直方图" value="histogram" />
+                <el-option label="数据分布直方图" value="histogram" />
               </el-select>
             </el-form-item>
 
-            <el-form-item label="选择列" v-if="dataVizForm.type !== 'correlation'">
+            <el-form-item label="选择列" v-if="dataVizForm.type === 'correlation'">
               <el-select 
                 v-model="dataVizForm.columns" 
                 multiple 
-                placeholder="请选择要可视化的列"
+                placeholder="请选择要分析的特征列"
                 style="width: 100%"
               >
                 <el-option 
-                  v-for="col in dataColumns" 
+                  v-for="col in numericColumns" 
+                  :key="col"
+                  :label="col" 
+                  :value="col"
+                />
+              </el-select>
+            </el-form-item>
+
+            <el-form-item label="选择列" v-if="dataVizForm.type === 'histogram'">
+              <el-select 
+                v-model="dataVizForm.columns" 
+                multiple 
+                placeholder="请选择要生成直方图的列"
+                style="width: 100%"
+              >
+                <el-option 
+                  v-for="col in numericColumns" 
                   :key="col"
                   :label="col" 
                   :value="col"
@@ -65,7 +90,6 @@
 
             <el-form-item label="图表引擎">
               <el-radio-group v-model="dataVizForm.chart_type">
-                <el-radio label="plotly">Plotly (交互式)</el-radio>
                 <el-radio label="matplotlib">Matplotlib (静态)</el-radio>
               </el-radio-group>
             </el-form-item>
@@ -107,7 +131,6 @@
 
             <el-form-item label="图表引擎">
               <el-radio-group v-model="modelVizForm.chart_type">
-                <el-radio label="plotly">Plotly (交互式)</el-radio>
                 <el-radio label="matplotlib">Matplotlib (静态)</el-radio>
               </el-radio-group>
             </el-form-item>
@@ -155,15 +178,8 @@
             />
           </div>
           
-          <!-- Plotly图表 -->
-          <div 
-            v-if="result.chart_type === 'plotly'" 
-            :id="`plotly-chart-${index}`"
-            class="chart-container"
-          />
-          
           <!-- Matplotlib图片 -->
-          <div v-else-if="result.chart_type === 'matplotlib'" class="chart-container">
+          <div v-if="result.chart_type === 'matplotlib'" class="chart-container">
             <img 
               :src="`data:image/png;base64,${result.chart_data}`" 
               alt="Chart"
@@ -180,12 +196,7 @@
                 :label="subKey"
                 :name="subKey"
               >
-                <div 
-                  v-if="subResult.chart_type === 'plotly'"
-                  :id="`plotly-chart-${index}-${subKey}`"
-                  class="chart-container"
-                />
-                <div v-else class="chart-container">
+                <div class="chart-container">
                   <img 
                     :src="`data:image/png;base64,${subResult.chart_data}`" 
                     alt="Chart"
@@ -242,22 +253,23 @@ export default {
       numericColumns: [],
       availableModels: [],
       dataVizForm: {
-        type: 'distribution',
+        type: 'correlation',
         columns: [],
         x_column: '',
         y_column: '',
-        chart_type: 'plotly'
+        chart_type: 'matplotlib'
       },
       modelVizForm: {
         type: 'prediction',
         model_id: '',
-        chart_type: 'plotly'
+        chart_type: 'matplotlib'
       },
       visualizationResults: [],
       visualizationHistory: [],
       loading: {
         dataViz: false,
-        modelViz: false
+        modelViz: false,
+        refresh: false
       }
     }
   },
@@ -269,22 +281,34 @@ export default {
     async loadDataInfo() {
       try {
         const response = await getDataPreview()
-        if (response.train_preview) {
+        console.log('可视化数据预览响应:', response)
+        
+        if (response.success && response.train_preview) {
           this.dataColumns = response.train_preview.columns || []
           this.numericColumns = response.train_preview.columns?.filter(col => 
             response.train_preview.dtypes[col]?.includes('float') || 
             response.train_preview.dtypes[col]?.includes('int')
           ) || []
           
-          // 默认选择前6个数值列
+          console.log('数据列:', this.dataColumns)
+          console.log('数值列:', this.numericColumns)
+          
+          // 默认选择前6个数值列（用于直方图）
           this.dataVizForm.columns = this.numericColumns.slice(0, 6)
           if (this.numericColumns.length >= 2) {
             this.dataVizForm.x_column = this.numericColumns[0]
             this.dataVizForm.y_column = this.numericColumns[1]
           }
+          
+          if (this.dataColumns.length === 0) {
+            this.$message.warning('没有可用的数据列，请先上传或加载数据')
+          }
+        } else {
+          this.$message.warning(response.message || '未获取到数据预览信息')
         }
       } catch (error) {
         console.error('加载数据信息失败:', error)
+        this.$message.error('加载数据信息失败: ' + (error.message || '未知错误'))
       }
     },
     
@@ -299,14 +323,22 @@ export default {
     
     onDataVizTypeChange() {
       // 根据类型重置相关配置
-      if (this.dataVizForm.type === 'correlation') {
-        this.dataVizForm.columns = []
-      } else if (this.dataVizForm.type === 'scatter') {
-        this.dataVizForm.columns = []
+      this.dataVizForm.columns = []
+      if (this.dataVizForm.type === 'scatter') {
+        // 散点图自动选择前两个数值列
+        if (this.numericColumns.length >= 2) {
+          this.dataVizForm.x_column = this.numericColumns[0]
+          this.dataVizForm.y_column = this.numericColumns[1]
+        }
       }
     },
     
     async generateDataVisualization() {
+      if (this.dataColumns.length === 0) {
+        this.$message.warning('请先加载数据')
+        return
+      }
+      
       this.loading.dataViz = true
       try {
         const params = {
@@ -320,7 +352,9 @@ export default {
           params.y_column = this.dataVizForm.y_column
         }
         
+        console.log('发送可视化请求:', params)
         const response = await generateDataVisualization(params)
+        console.log('可视化响应:', response)
         
         if (response.success) {
           const result = {
@@ -333,17 +367,13 @@ export default {
           this.visualizationResults.push(result)
           this.addToHistory(result)
           
-          // 如果是Plotly图表，需要在下一个tick渲染
-          if (response.chart_type === 'plotly') {
-            this.$nextTick(() => {
-              this.renderPlotlyChart(result, this.visualizationResults.length - 1)
-            })
-          }
-          
           this.$message.success('数据可视化生成成功')
+        } else {
+          this.$message.error(response.message || '生成可视化失败')
         }
       } catch (error) {
         console.error('生成数据可视化失败:', error)
+        this.$message.error('生成数据可视化失败: ' + (error.message || '未知错误'))
       } finally {
         this.loading.dataViz = false
       }
@@ -373,20 +403,6 @@ export default {
           // 处理多个结果的情况
           if (response.results) {
             result.activeTab = Object.keys(response.results)[0]
-            this.$nextTick(() => {
-              Object.keys(response.results).forEach((key, index) => {
-                if (response.results[key].chart_type === 'plotly') {
-                  this.renderPlotlyChart(
-                    response.results[key], 
-                    `${this.visualizationResults.length - 1}-${key}`
-                  )
-                }
-              })
-            })
-          } else if (response.chart_type === 'plotly') {
-            this.$nextTick(() => {
-              this.renderPlotlyChart(result, this.visualizationResults.length - 1)
-            })
           }
           
           this.$message.success('模型可视化生成成功')
@@ -398,37 +414,25 @@ export default {
       }
     },
     
-    renderPlotlyChart(chartData, chartId) {
-      // 这里需要引入Plotly库来渲染图表
-      // 由于没有实际的Plotly数据，这里只是占位
-      console.log('渲染Plotly图表:', chartId, chartData)
-      
-      // 实际代码应该是：
-      // if (window.Plotly && chartData.chart_data) {
-      //   const plotData = JSON.parse(chartData.chart_data)
-      //   Plotly.newPlot(`plotly-chart-${chartId}`, plotData.data, plotData.layout)
-      // }
-    },
+
     
     getDataVizTitle() {
       const typeNames = {
-        'distribution': '数据分布图',
-        'correlation': '相关性矩阵',
-        'scatter': '散点图',
-        'box': '箱线图',
-        'histogram': '直方图'
+        'correlation': 'Correlation Matrix',
+        'scatter': 'Scatter Plot',
+        'histogram': 'Data Distribution Histogram'
       }
-      return typeNames[this.dataVizForm.type] || '数据可视化'
+      return typeNames[this.dataVizForm.type] || 'Data Visualization'
     },
     
     getModelVizTitle() {
       const typeNames = {
-        'prediction': '预测vs实际值',
-        'residuals': '残差图',
-        'feature_importance': '特征重要性',
-        'learning_curve': '学习曲线'
+        'prediction': 'Prediction vs Actual',
+        'residuals': 'Residual Plot',
+        'feature_importance': 'Feature Importance',
+        'learning_curve': 'Learning Curve'
       }
-      return typeNames[this.modelVizForm.type] || '模型可视化'
+      return typeNames[this.modelVizForm.type] || 'Model Visualization'
     },
     
     addToHistory(result) {
@@ -451,13 +455,21 @@ export default {
     
     restoreVisualization(historyItem) {
       this.visualizationResults.push(historyItem.data)
-      
-      if (historyItem.chart_type === 'plotly') {
-        this.$nextTick(() => {
-          this.renderPlotlyChart(historyItem.data, this.visualizationResults.length - 1)
-        })
+    },
+    
+    async refreshData() {
+      this.loading.refresh = true
+      try {
+        await this.loadDataInfo()
+        this.$message.success('数据刷新成功')
+      } catch (error) {
+        this.$message.error('数据刷新失败: ' + error.message)
+      } finally {
+        this.loading.refresh = false
       }
-    }
+    },
+    
+
   }
 }
 </script>
@@ -479,6 +491,14 @@ export default {
 .page-header p {
   color: #909399;
   margin: 0;
+}
+
+.header-actions {
+  margin-top: 15px;
+}
+
+.header-actions .el-button {
+  margin-right: 10px;
 }
 
 .section-card {
@@ -523,17 +543,23 @@ export default {
 }
 
 .chart-container {
-  min-height: 300px;
+  min-height: 400px;
+  width: 100%;
   background: white;
   border-radius: 4px;
   padding: 10px;
   display: flex;
   align-items: center;
   justify-content: center;
+  border: 1px solid #f0f0f0;
 }
 
 .multi-results {
   background: white;
   border-radius: 4px;
+}
+
+.multi-results .chart-container {
+  min-height: 350px;
 }
 </style> 
