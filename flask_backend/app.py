@@ -304,12 +304,20 @@ def evaluate_model():
         return jsonify({'success': False, 'message': str(e)}), 500
 
 # Stacking Ensemble endpoints
+@app.route('/api/stacking/models', methods=['GET'])
+def get_stacking_models():
+    """Get available stacking models"""
+    return jsonify(stacking_service.get_available_models())
+
 @app.route('/api/stacking/train', methods=['POST'])
 def train_stacking():
     """Train stacking ensemble model"""
     try:
         params = request.get_json()
+        print(f"收到Stacking训练请求参数: {params}")
+        
         if app_state['train_data'] is None:
+            print("Stacking训练失败: 没有训练数据")
             return jsonify({'success': False, 'message': 'No training data available'}), 400
             
         result = stacking_service.train_stacking_ensemble(
@@ -319,12 +327,26 @@ def train_stacking():
         
         if result['success']:
             model_id = result['model_id']
+            # 存储完整的模型信息到app_state（包含模型对象）
             app_state['models'][model_id] = result['model']
             app_state['current_model'] = model_id
+            print(f"Stacking模型训练成功: {model_id}")
+            
+            # 创建JSON可序列化的响应（移除模型对象）
+            json_result = result.copy()
+            if 'model' in json_result:
+                del json_result['model']  # 移除不可序列化的模型对象
+        else:
+            print(f"Stacking模型训练失败: {result.get('message', '未知错误')}")
+            json_result = result
         
-        return jsonify(result)
+        return jsonify(json_result)
     except Exception as e:
-        return jsonify({'success': False, 'message': str(e)}), 500
+        import traceback
+        error_msg = str(e)
+        print(f"Stacking模型训练异常: {error_msg}")
+        print(traceback.format_exc())
+        return jsonify({'success': False, 'message': error_msg}), 500
 
 # AutoML endpoints
 @app.route('/api/automl/run', methods=['POST'])

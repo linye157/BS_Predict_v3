@@ -160,11 +160,28 @@ export const evaluateModel = (params) => {
 }
 
 // Stacking集成学习API
+export const getStackingModels = () => {
+  return api({
+    url: '/api/stacking/models',
+    method: 'get'
+  })
+  .then(response => response.data)
+  .catch(error => {
+    console.error('获取Stacking模型失败:', error);
+    return { success: false, base_models: [], meta_models: [] };
+  })
+}
+
 export const trainStackingModel = (params) => {
-  return request({
+  return api({
     url: '/api/stacking/train',
     method: 'post',
     data: params
+  })
+  .then(response => response.data)
+  .catch(error => {
+    console.error('Stacking模型训练失败:', error);
+    return { success: false, message: error.message || 'Stacking训练失败' };
   })
 }
 

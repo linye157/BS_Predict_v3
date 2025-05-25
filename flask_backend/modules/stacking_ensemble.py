@@ -5,19 +5,92 @@ from datetime import datetime
 from sklearn.ensemble import StackingRegressor
 from sklearn.ensemble import RandomForestRegressor, GradientBoostingRegressor
 from sklearn.linear_model import LinearRegression
+from sklearn.svm import SVR
+from sklearn.neural_network import MLPRegressor
 from sklearn.model_selection import cross_val_score, KFold
 from sklearn.metrics import mean_squared_error, mean_absolute_error, r2_score
+import xgboost as xgb
 import warnings
 warnings.filterwarnings('ignore')
 
 class StackingEnsembleService:
     def __init__(self):
+        # 与机器学习服务保持一致的模型配置
         self.base_models = {
-            'rf': RandomForestRegressor(n_estimators=100, random_state=42),
-            'gbr': GradientBoostingRegressor(n_estimators=100, random_state=42),
-            'lr': LinearRegression()
+            'LinearRegression': {
+                'name': '线性回归(LR)',
+                'model': LinearRegression()
+            },
+            'RandomForest': {
+                'name': '随机森林(RF)',
+                'model': RandomForestRegressor(n_estimators=100, random_state=42)
+            },
+            'GradientBoosting': {
+                'name': 'GBR模型',
+                'model': GradientBoostingRegressor(n_estimators=100, random_state=42)
+            },
+            'XGBoost': {
+                'name': 'XGBR模型',
+                'model': xgb.XGBRegressor(n_estimators=100, random_state=42)
+            },
+            'SVR': {
+                'name': '支持向量机(SVR)',
+                'model': SVR(C=1.0, kernel='rbf')
+            },
+            'MLP': {
+                'name': '人工神经网络(ANN)',
+                'model': MLPRegressor(hidden_layer_sizes=(100,), random_state=42, max_iter=500)
+            }
         }
         
+        # 元学习器选项
+        self.meta_models = {
+            'LinearRegression': {
+                'name': '线性回归',
+                'model': LinearRegression()
+            },
+            'RandomForest': {
+                'name': '随机森林',
+                'model': RandomForestRegressor(n_estimators=50, random_state=42)
+            },
+            'GradientBoosting': {
+                'name': 'GBR模型',
+                'model': GradientBoostingRegressor(n_estimators=50, random_state=42)
+            },
+            'XGBoost': {
+                'name': 'XGBR模型',
+                'model': xgb.XGBRegressor(n_estimators=50, random_state=42)
+            },
+            'SVR': {
+                'name': '支持向量机',
+                'model': SVR(C=1.0, kernel='rbf')
+            },
+            'MLP': {
+                'name': '人工神经网络',
+                'model': MLPRegressor(hidden_layer_sizes=(50,), random_state=42, max_iter=300)
+            }
+        }
+    
+    def get_available_models(self):
+        """获取可用的基学习器和元学习器"""
+        return {
+            'success': True,
+            'base_models': [
+                {
+                    'key': key,
+                    'name': info['name']
+                }
+                for key, info in self.base_models.items()
+            ],
+            'meta_models': [
+                {
+                    'key': key,
+                    'name': info['name']
+                }
+                for key, info in self.meta_models.items()
+            ]
+        }
+    
     def train_stacking_ensemble(self, train_data, params):
         """Train stacking ensemble model"""
         try:
@@ -35,17 +108,15 @@ class StackingEnsembleService:
             
             # Select base models
             base_estimators = [
-                (name, self.base_models[name]) for name in selected_base_models 
+                (name, self.base_models[name]['model']) for name in selected_base_models 
                 if name in self.base_models
             ]
             
             # Meta model
-            if meta_model_type == 'LinearRegression':
-                meta_model = LinearRegression()
-            elif meta_model_type == 'RandomForest':
-                meta_model = RandomForestRegressor(n_estimators=50, random_state=42)
+            if meta_model_type in self.meta_models:
+                meta_model = self.meta_models[meta_model_type]['model']
             else:
-                meta_model = LinearRegression()
+                meta_model = self.meta_models['LinearRegression']['model']
             
             results = {}
             models = {}
@@ -90,8 +161,8 @@ class StackingEnsembleService:
             # Generate unique model ID
             model_id = str(uuid.uuid4())
             
-            # Prepare model info for storage
-            model_info = {
+            # Prepare model info for storage (包含模型对象，用于app_state存储)
+            model_info_storage = {
                 'model': models if len(target_columns) > 1 else models[target_columns[0]],
                 'model_type': 'StackingEnsemble',
                 'model_name': 'Stacking集成模型',
@@ -101,14 +172,26 @@ class StackingEnsembleService:
                 'meta_model': meta_model_type,
                 'cv_folds': cv_folds,
                 'training_time': datetime.now().isoformat(),
-                'data_shape': train_data.shape
+                'data_shape': list(train_data.shape)
             }
             
+            # 准备JSON可序列化的响应结果
             return {
                 'success': True,
                 'message': 'Stacking集成模型训练完成',
                 'model_id': model_id,
-                'model': model_info,
+                'model': model_info_storage,  # 这个会在app.py中被移除
+                'model_info': {
+                    'model_type': 'StackingEnsemble',
+                    'model_name': 'Stacking集成模型',
+                    'feature_columns': feature_columns,
+                    'target_columns': target_columns,
+                    'base_models': selected_base_models,
+                    'meta_model': meta_model_type,
+                    'cv_folds': cv_folds,
+                    'training_time': datetime.now().isoformat(),
+                    'data_shape': list(train_data.shape)
+                },
                 'metrics': results,
                 'feature_columns': feature_columns,
                 'target_columns': target_columns
@@ -135,7 +218,7 @@ class StackingEnsembleService:
                 y_target = y[target_col] if len(target_columns) > 1 else y.iloc[:, 0]
                 target_results = {}
                 
-                for model_name, model in self.base_models.items():
+                for model_name, model_info in self.base_models.items():
                     cv_predictions = np.zeros(len(X))
                     cv_scores = []
                     
@@ -144,6 +227,7 @@ class StackingEnsembleService:
                         y_train_cv, y_val_cv = y_target.iloc[train_idx], y_target.iloc[val_idx]
                         
                         # Train model on CV fold
+                        model = model_info['model']
                         model_copy = type(model)(**model.get_params())
                         model_copy.fit(X_train_cv, y_train_cv)
                         

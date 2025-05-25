@@ -3,21 +3,55 @@
     <div class="page-header">
       <h2>机器学习Stacking集成</h2>
       <p>训练一级模型、训练二级模型、k折交叉验证</p>
+      <div style="margin-top: 10px;">
+        <el-tag 
+          :type="dataColumns.length > 0 ? 'success' : 'warning'"
+          size="small"
+        >
+          数据状态: {{ dataColumns.length > 0 ? `已加载 ${dataColumns.length} 列数据` : '未加载数据' }}
+        </el-tag>
+        <el-tag 
+          :type="availableBaseModels.length > 0 ? 'success' : 'warning'"
+          size="small"
+          style="margin-left: 10px;"
+        >
+          模型状态: {{ availableBaseModels.length > 0 ? `${availableBaseModels.length} 个基学习器, ${availableMetaModels.length} 个元学习器` : '模型未加载' }}
+        </el-tag>
+      </div>
     </div>
 
     <!-- Stacking模型配置 -->
     <el-card class="section-card">
       <div slot="header" class="section-header">
         <span><i class="el-icon-connection"></i> Stacking集成配置</span>
+        <el-button 
+          type="text" 
+          @click="refreshData"
+          :loading="loading.refresh"
+          style="float: right; padding: 3px 0"
+        >
+          <i class="el-icon-refresh"></i> 刷新数据
+        </el-button>
       </div>
       
       <el-form :model="stackingForm" label-width="150px" ref="stackingForm">
+        <!-- 数据状态提示 -->
+        <el-alert
+          v-if="dataColumns.length === 0"
+          title="请先加载数据"
+          description="在进行Stacking集成训练之前，请先在数据接口页面上传或加载默认数据"
+          type="warning"
+          :closable="false"
+          style="margin-bottom: 20px;"
+        />
+        
         <el-form-item label="目标列选择" required>
           <el-select 
             v-model="stackingForm.target_columns" 
             multiple 
             placeholder="请选择目标列"
             style="width: 100%"
+            :disabled="dataColumns.length === 0"
           >
             <el-option 
               v-for="col in dataColumns" 
@@ -29,17 +63,32 @@
         </el-form-item>
 
         <el-form-item label="基学习器选择" required>
-          <el-checkbox-group v-model="stackingForm.base_models">
-            <el-checkbox label="rf">随机森林 (Random Forest)</el-checkbox>
-            <el-checkbox label="gbr">梯度提升 (Gradient Boosting)</el-checkbox>
-            <el-checkbox label="lr">线性回归 (Linear Regression)</el-checkbox>
+          <el-checkbox-group 
+            v-model="stackingForm.base_models"
+            :disabled="dataColumns.length === 0 || availableBaseModels.length === 0"
+          >
+            <el-checkbox 
+              v-for="model in availableBaseModels" 
+              :key="model.key"
+              :label="model.key"
+            >
+              {{ model.name }}
+            </el-checkbox>
           </el-checkbox-group>
         </el-form-item>
 
         <el-form-item label="元学习器选择">
-          <el-select v-model="stackingForm.meta_model">
-            <el-option label="线性回归" value="LinearRegression" />
-            <el-option label="随机森林" value="RandomForest" />
+          <el-select 
+            v-model="stackingForm.meta_model" 
+            placeholder="请选择元学习器"
+            :disabled="dataColumns.length === 0 || availableMetaModels.length === 0"
+          >
+            <el-option 
+              v-for="model in availableMetaModels" 
+              :key="model.key"
+              :label="model.name" 
+              :value="model.key" 
+            />
           </el-select>
         </el-form-item>
 
@@ -57,6 +106,7 @@
             type="primary" 
             @click="trainStackingModel"
             :loading="loading.train"
+            :disabled="dataColumns.length === 0 || availableBaseModels.length === 0"
             size="large"
           >
             <i class="el-icon-connection"></i> 训练Stacking模型
@@ -65,6 +115,7 @@
             type="info" 
             @click="analyzeBaseModels"
             :loading="loading.analyze"
+            :disabled="dataColumns.length === 0 || availableBaseModels.length === 0"
             size="large"
           >
             <i class="el-icon-data-analysis"></i> 分析基模型
@@ -135,13 +186,14 @@
         <el-tab-pane label="模型信息" name="info">
           <el-descriptions border :column="2">
             <el-descriptions-item label="模型ID">{{ stackingResult.model_id }}</el-descriptions-item>
-            <el-descriptions-item label="模型类型">{{ stackingResult.model?.model_name }}</el-descriptions-item>
+            <el-descriptions-item label="模型类型">{{ stackingResult.model_info?.model_name || 'Stacking集成模型' }}</el-descriptions-item>
             <el-descriptions-item label="特征数量">{{ stackingResult.feature_columns?.length }}</el-descriptions-item>
             <el-descriptions-item label="目标数量">{{ stackingResult.target_columns?.length }}</el-descriptions-item>
-            <el-descriptions-item label="基学习器">{{ stackingResult.model?.base_models?.join(', ') }}</el-descriptions-item>
-            <el-descriptions-item label="元学习器">{{ stackingResult.model?.meta_model }}</el-descriptions-item>
-            <el-descriptions-item label="交叉验证折数">{{ stackingResult.model?.cv_folds }}</el-descriptions-item>
-            <el-descriptions-item label="训练时间">{{ stackingResult.model?.training_time }}</el-descriptions-item>
+            <el-descriptions-item label="基学习器">{{ (stackingResult.model_info?.base_models || []).map(m => getModelName(m)).join(', ') }}</el-descriptions-item>
+            <el-descriptions-item label="元学习器">{{ getModelName(stackingResult.model_info?.meta_model) }}</el-descriptions-item>
+            <el-descriptions-item label="交叉验证折数">{{ stackingResult.model_info?.cv_folds }}</el-descriptions-item>
+            <el-descriptions-item label="训练时间">{{ stackingResult.model_info?.training_time }}</el-descriptions-item>
+            <el-descriptions-item label="数据形状" :span="2">{{ stackingResult.model_info?.data_shape?.join(' × ') }}</el-descriptions-item>
           </el-descriptions>
         </el-tab-pane>
         
@@ -180,7 +232,7 @@
                 <h5>第一层：基学习器</h5>
                 <div class="base-models">
                   <div 
-                    v-for="model in stackingResult.model?.base_models" 
+                    v-for="model in (stackingResult.model_info?.base_models || [])" 
                     :key="model"
                     class="base-model-box"
                   >
@@ -192,7 +244,7 @@
               <div class="level-2">
                 <h5>第二层：元学习器</h5>
                 <div class="meta-model-box">
-                  {{ stackingResult.model?.meta_model }}
+                  {{ getModelName(stackingResult.model_info?.meta_model) }}
                 </div>
               </div>
             </div>
@@ -246,7 +298,8 @@
 <script>
 import { 
   trainStackingModel,
-  getDataPreview 
+  getDataPreview,
+  getStackingModels
 } from '@/api/mlApi'
 
 export default {
@@ -256,8 +309,8 @@ export default {
       dataColumns: [],
       stackingForm: {
         target_columns: [],
-        base_models: ['rf', 'gbr', 'lr'],
-        meta_model: 'LinearRegression',
+        base_models: [],
+        meta_model: '',
         cv_folds: 5
       },
       stackingResult: null,
@@ -265,24 +318,61 @@ export default {
       resultTab: 'info',
       loading: {
         train: false,
-        analyze: false
-      }
+        analyze: false,
+        refresh: false
+      },
+      availableBaseModels: [],
+      availableMetaModels: []
     }
   },
   async mounted() {
     await this.loadDataInfo()
+    await this.loadAvailableModels()
   },
   methods: {
     async loadDataInfo() {
       try {
         const response = await getDataPreview()
-        if (response.train_preview) {
+        console.log('Stacking数据预览响应:', response)
+        if (response.success && response.train_preview) {
           this.dataColumns = response.train_preview.columns || []
-          // 默认选择最后3列作为目标列
-          this.stackingForm.target_columns = this.dataColumns.slice(-3)
+          // 默认选择最后一列作为目标列
+          if (this.dataColumns.length > 0) {
+            this.stackingForm.target_columns = [this.dataColumns[this.dataColumns.length - 1]]
+          }
+          if (this.dataColumns.length === 0) {
+            this.$message.warning('没有可用的数据列，请先上传或加载数据')
+          }
+        } else {
+          this.$message.warning(response.message || '未获取到数据预览信息')
         }
       } catch (error) {
         console.error('加载数据信息失败:', error)
+        this.$message.error('加载数据信息失败: ' + (error.message || '未知错误'))
+      }
+    },
+    
+    async loadAvailableModels() {
+      try {
+        const response = await getStackingModels()
+        console.log('Stacking模型响应:', response)
+        if (response.success) {
+          this.availableBaseModels = response.base_models || []
+          this.availableMetaModels = response.meta_models || []
+          
+          // 设置默认选择
+          if (this.availableBaseModels.length > 0) {
+            this.stackingForm.base_models = this.availableBaseModels.slice(0, 3).map(m => m.key)
+          }
+          if (this.availableMetaModels.length > 0) {
+            this.stackingForm.meta_model = this.availableMetaModels[0].key
+          }
+        } else {
+          this.$message.error('加载Stacking模型失败')
+        }
+      } catch (error) {
+        console.error('加载Stacking模型失败:', error)
+        this.$message.error('加载Stacking模型失败: ' + (error.message || '未知错误'))
       }
     },
     
@@ -298,11 +388,19 @@ export default {
       
       this.loading.train = true
       try {
+        console.log('开始训练Stacking模型，参数:', this.stackingForm)
         const response = await trainStackingModel(this.stackingForm)
-        this.stackingResult = response
-        this.$message.success('Stacking模型训练完成')
+        console.log('Stacking训练响应:', response)
+        
+        if (response.success) {
+          this.stackingResult = response
+          this.$message.success('Stacking模型训练完成')
+        } else {
+          this.$message.error(response.message || 'Stacking模型训练失败')
+        }
       } catch (error) {
         console.error('Stacking模型训练失败:', error)
+        this.$message.error('Stacking模型训练失败: ' + (error.message || '未知错误'))
       } finally {
         this.loading.train = false
       }
@@ -379,14 +477,41 @@ export default {
     },
     
     getModelName(modelKey) {
+      // 首先尝试从可用模型列表中查找
+      const baseModel = this.availableBaseModels.find(m => m.key === modelKey)
+      if (baseModel) return baseModel.name
+      
+      const metaModel = this.availableMetaModels.find(m => m.key === modelKey)
+      if (metaModel) return metaModel.name
+      
+      // 备用映射表
       const names = {
+        'LinearRegression': '线性回归(LR)',
+        'RandomForest': '随机森林(RF)',
+        'GradientBoosting': 'GBR模型',
+        'XGBoost': 'XGBR模型',
+        'SVR': '支持向量机(SVR)',
+        'MLP': '人工神经网络(ANN)',
+        // 兼容旧的键名
         'rf': '随机森林',
         'gbr': '梯度提升',
-        'lr': '线性回归',
-        'LinearRegression': '线性回归',
-        'RandomForest': '随机森林'
+        'lr': '线性回归'
       }
       return names[modelKey] || modelKey
+    },
+    
+    async refreshData() {
+      this.loading.refresh = true
+      try {
+        await this.loadDataInfo()
+        await this.loadAvailableModels()
+        this.$message.success('数据刷新完成')
+      } catch (error) {
+        console.error('刷新数据失败:', error)
+        this.$message.error('刷新数据失败: ' + (error.message || '未知错误'))
+      } finally {
+        this.loading.refresh = false
+      }
     }
   }
 }
