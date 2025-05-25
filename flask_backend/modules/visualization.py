@@ -48,6 +48,22 @@ class VisualizationService:
             
             print(f"生成模型可视化: 类型={viz_type}, 图表引擎={chart_type}")
             
+            # 检查模型信息是否完整
+            if not isinstance(model_info, dict):
+                print(f"错误: 模型信息不是一个字典，而是 {type(model_info)}")
+                return {'success': False, 'message': '模型信息格式错误'}
+                
+            required_keys = ['model', 'feature_columns', 'target_columns']
+            missing_keys = [key for key in required_keys if key not in model_info]
+            if missing_keys:
+                print(f"错误: 模型信息缺少必要的键: {missing_keys}")
+                return {'success': False, 'message': f'模型信息缺少必要的键: {missing_keys}'}
+            
+            # 检查训练数据
+            if train_data is None or train_data.empty:
+                print("错误: 训练数据为空")
+                return {'success': False, 'message': '训练数据为空，无法生成可视化'}
+            
             result = None
             if viz_type == 'prediction':
                 result = self._generate_prediction_plots(model_info, train_data, chart_type)
@@ -63,9 +79,30 @@ class VisualizationService:
             # 验证结果格式
             if result and result.get('success') and result.get('results'):
                 print(f"生成可视化结果成功: {len(result['results'])} 个目标变量, 结果键: {list(result['results'].keys())}")
+                
+                # 检查并修复结果中的空/缺失数据
                 for key, val in result['results'].items():
                     if not val.get('chart_data'):
-                        print(f"警告: {key} 没有图表数据!")
+                        print(f"警告: {key} 没有图表数据，创建默认空图表")
+                        # 创建一个默认的空图表
+                        try:
+                            plt.figure(figsize=(8, 6))
+                            plt.text(0.5, 0.5, f"无法生成{viz_type}图表\n模型可能不支持此类型的可视化", 
+                                     horizontalalignment='center', fontsize=14)
+                            plt.axis('off')
+                            
+                            # 保存为base64
+                            img_buffer = io.BytesIO()
+                            plt.savefig(img_buffer, format='png', dpi=300, bbox_inches='tight')
+                            img_buffer.seek(0)
+                            img_base64 = base64.b64encode(img_buffer.getvalue()).decode()
+                            plt.close()
+                            
+                            # 更新结果
+                            result['results'][key]['chart_data'] = img_base64
+                            print(f"为 {key} 创建了默认图表")
+                        except Exception as err:
+                            print(f"创建默认图表失败: {str(err)}")
             else:
                 if result:
                     print(f"可视化失败: {result.get('message', '未知错误')}")
@@ -236,12 +273,24 @@ class VisualizationService:
     def _generate_prediction_plots(self, model_info, train_data, chart_type):
         """Generate prediction vs actual plots"""
         try:
+            print(f"生成预测VS实际图，数据形状: {train_data.shape}")
+            
             model = model_info['model']
             feature_columns = model_info['feature_columns']
             target_columns = model_info['target_columns']
             
+            print(f"模型特征数: {len(feature_columns)}, 目标列: {target_columns}")
+            
+            # 确保数据完整性
+            missing_features = [col for col in feature_columns if col not in train_data.columns]
+            if missing_features:
+                print(f"警告: 特征列缺失: {missing_features}")
+                return {'success': False, 'message': f'缺少所需特征列: {missing_features}'}
+            
             X = train_data[feature_columns]
             y_actual = train_data[target_columns]
+            
+            print(f"特征矩阵形状: {X.shape}, 目标矩阵形状: {y_actual.shape}")
             
             results = {}
             
