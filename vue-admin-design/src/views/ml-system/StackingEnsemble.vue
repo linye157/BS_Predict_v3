@@ -182,6 +182,18 @@
         style="margin-bottom: 20px;"
       />
       
+      <div style="margin-bottom: 20px; text-align: right;">
+        <el-button 
+          type="primary" 
+          @click="downloadCurrentModel"
+          :loading="loading.download"
+          icon="el-icon-download"
+          size="small"
+        >
+          下载模型
+        </el-button>
+      </div>
+      
       <el-tabs v-model="resultTab" type="card">
         <el-tab-pane label="模型信息" name="info">
           <el-descriptions border :column="2">
@@ -299,7 +311,8 @@
 import { 
   trainStackingModel,
   getDataPreview,
-  getStackingModels
+  getStackingModels,
+  downloadModel
 } from '@/api/mlApi'
 
 export default {
@@ -319,7 +332,8 @@ export default {
       loading: {
         train: false,
         analyze: false,
-        refresh: false
+        refresh: false,
+        download: false
       },
       availableBaseModels: [],
       availableMetaModels: []
@@ -511,6 +525,39 @@ export default {
         this.$message.error('刷新数据失败: ' + (error.message || '未知错误'))
       } finally {
         this.loading.refresh = false
+      }
+    },
+    
+    async downloadCurrentModel() {
+      if (!this.stackingResult || !this.stackingResult.model_id) {
+        this.$message.warning('没有当前模型可下载')
+        return
+      }
+      
+      this.loading.download = true
+      try {
+        const response = await downloadModel(this.stackingResult.model_id)
+        
+        // 创建下载链接
+        const blob = new Blob([response], { type: 'application/octet-stream' })
+        const url = window.URL.createObjectURL(blob)
+        const link = document.createElement('a')
+        link.href = url
+        
+        // 生成文件名
+        const modelName = 'Stacking集成模型'
+        const modelId = this.stackingResult.model_id.substring(0, 8)
+        link.download = `${modelName}_${modelId}.pkl`
+        
+        link.click()
+        window.URL.revokeObjectURL(url)
+        
+        this.$message.success('Stacking模型下载完成')
+      } catch (error) {
+        console.error('Stacking模型下载失败:', error)
+        this.$message.error('Stacking模型下载失败: ' + (error.message || '未知错误'))
+      } finally {
+        this.loading.download = false
       }
     }
   }

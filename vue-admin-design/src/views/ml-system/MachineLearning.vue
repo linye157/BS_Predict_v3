@@ -256,6 +256,18 @@
         style="margin-bottom: 20px;"
       />
       
+      <div style="margin-bottom: 20px; text-align: right;">
+        <el-button 
+          type="primary" 
+          @click="downloadCurrentModel"
+          :loading="loading.download"
+          icon="el-icon-download"
+          size="small"
+        >
+          下载模型
+        </el-button>
+      </div>
+      
       <el-tabs v-model="resultTab" type="card">
         <el-tab-pane label="模型信息" name="info">
           <el-descriptions border :column="2">
@@ -468,7 +480,8 @@ import {
   predictModel, 
   evaluateModel,
   getDataPreview,
-  getSystemStatus
+  getSystemStatus,
+  downloadModel
 } from '@/api/mlApi'
 import axios from 'axios'
 
@@ -494,7 +507,8 @@ export default {
       loading: {
         train: false,
         predict: false,
-        evaluate: false
+        evaluate: false,
+        download: false
       }
     }
   },
@@ -736,6 +750,40 @@ export default {
       } catch (error) {
         console.error('连接测试失败:', error)
         this.$message.error('连接测试失败: ' + (error.message || '未知错误'))
+      }
+    },
+    
+    async downloadCurrentModel() {
+      if (!this.currentModel) {
+        this.$message.warning('没有当前模型可下载')
+        return
+      }
+      
+      this.loading.download = true
+      try {
+        const response = await downloadModel(this.currentModel)
+        
+        // 创建下载链接
+        const blob = new Blob([response], { type: 'application/octet-stream' })
+        const url = window.URL.createObjectURL(blob)
+        const link = document.createElement('a')
+        link.href = url
+        
+        // 生成文件名
+        const modelInfo = this.trainResult?.model_info
+        const modelName = modelInfo?.model_name || 'model'
+        const modelId = this.currentModel.substring(0, 8)
+        link.download = `${modelName}_${modelId}.pkl`
+        
+        link.click()
+        window.URL.revokeObjectURL(url)
+        
+        this.$message.success('模型下载完成')
+      } catch (error) {
+        console.error('模型下载失败:', error)
+        this.$message.error('模型下载失败: ' + (error.message || '未知错误'))
+      } finally {
+        this.loading.download = false
       }
     }
   }

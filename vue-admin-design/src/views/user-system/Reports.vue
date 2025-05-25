@@ -276,7 +276,8 @@ import {
   generateReport,
   getReportsList,
   downloadReportFile,
-  deleteReport 
+  deleteReport,
+  getModelsList 
 } from '@/api/mlApi'
 
 export default {
@@ -341,14 +342,31 @@ export default {
       }
     },
     
-    loadAvailableModels() {
-      // 模拟可用模型数据
-      this.availableModels = [
-        { id: 'model_1', name: '随机森林模型' },
-        { id: 'model_2', name: 'XGBoost模型' },
-        { id: 'model_3', name: '线性回归模型' },
-        { id: 'model_4', name: 'Stacking集成模型' }
-      ]
+    async loadAvailableModels() {
+      try {
+        const response = await getModelsList()
+        console.log('报表模型列表响应:', response)
+        
+        if (response.success && response.models) {
+          this.availableModels = response.models.map(model => ({
+            id: model.id,
+            name: `${model.name} (${model.type})`
+          }))
+          
+          console.log('报表加载的模型列表:', this.availableModels)
+          
+          if (this.availableModels.length === 0) {
+            this.$message.info('暂无可用的训练模型，请先训练模型')
+          }
+        } else {
+          console.warn('获取模型列表失败:', response.message)
+          this.availableModels = []
+        }
+      } catch (error) {
+        console.error('加载模型列表失败:', error)
+        this.availableModels = []
+        this.$message.error('加载模型列表失败: ' + (error.message || '未知错误'))
+      }
     },
     
     async loadReportsList() {
@@ -412,7 +430,9 @@ export default {
       
       this.loading.generate = true
       try {
+        console.log('生成报表参数:', this.reportForm)
         const response = await generateReport(this.reportForm)
+        console.log('报表生成响应:', response)
         
         if (response.success) {
           this.$message.success('报表生成成功')
@@ -427,9 +447,12 @@ export default {
             output_formats: ['html'],
             template: 'standard'
           }
+        } else {
+          this.$message.error(response.message || '报表生成失败')
         }
       } catch (error) {
         console.error('生成报表失败:', error)
+        this.$message.error('生成报表失败: ' + (error.message || '未知错误'))
       } finally {
         this.loading.generate = false
       }
@@ -467,14 +490,50 @@ export default {
     
     async previewReportContent(report) {
       try {
-        // 这里应该调用API获取报表内容
-        this.previewReport = {
-          ...report,
-          content: this.generateMockReportContent(report)
+        // 实际从后端获取报表内容
+        this.$message.info('正在加载报表内容...')
+        
+        // 使用新窗口打开方式更可靠
+        // 先在新窗口直接打开报表
+        window.open(`/api/reports/download/${report.id}/html?preview=true`, '_blank')
+        
+        // 同时加载预览对话框
+        try {
+          // 使用preview参数标记这是预览模式，直接返回内容而非下载附件
+          const response = await fetch(`/api/reports/download/${report.id}/html?preview=true`)
+          
+          if (response.ok) {
+            const htmlContent = await response.text()
+            console.log('获取到报表内容，长度:', htmlContent.length)
+            
+            if (htmlContent.startsWith('{') && htmlContent.includes('error')) {
+              // 可能是JSON错误响应
+              try {
+                const errorJson = JSON.parse(htmlContent)
+                throw new Error(errorJson.error || errorJson.message || '获取报表内容失败')
+              } catch (jsonError) {
+                // 解析失败，继续使用原始内容
+              }
+            }
+            
+            this.previewReport = {
+              ...report,
+              content: htmlContent
+            }
+            this.showPreviewDialog = true
+          } else {
+            throw new Error(`报表内容获取失败: ${response.status} ${response.statusText}`)
+          }
+        } catch (fetchError) {
+          console.error('获取实际报表内容失败:', fetchError)
+          this.$message.warning('无法在对话框中加载报表内容，但已在新窗口打开')
+          
+          // 不再使用模拟数据，因为已在新窗口打开
+          this.showPreviewDialog = false
         }
-        this.showPreviewDialog = true
       } catch (error) {
         console.error('加载报表内容失败:', error)
+        this.$message.error('加载报表内容失败: ' + (error.message || '未知错误'))
       }
     },
     
@@ -537,20 +596,58 @@ export default {
     
     async downloadReport(report, format) {
       try {
-        const response = await downloadReportFile(report.id, format)
+        this.$message.info(`正在下载${format.toUpperCase()}报表...`)
         
-        // 创建下载链接
-        const blob = new Blob([response], { type: this.getContentType(format) })
-        const url = window.URL.createObjectURL(blob)
-        const link = document.createElement('a')
-        link.href = url
-        link.download = `${report.title}.${format}`
-        link.click()
+        console.log(`尝试下载报表: ${report.id}, 格式: ${format}, 标题: ${report.title || '未命名'}`)
         
-        this.$message.success(`${format.toUpperCase()}报表下载完成`)
+        // 构建完整链接并创建blob
+        const url = `/api/reports/download/${report.id}/${format}`
+        
+        try {
+          // 创建一个表单进行下载(回退方案)
+          const form = document.createElement('form')
+          form.style.display = 'none' // 隐藏表单
+          form.method = 'GET'
+          form.action = url
+          form.target = '_blank' // 在新窗口打开
+          
+          document.body.appendChild(form)
+          form.submit()
+          document.body.removeChild(form)
+          
+          this.$message.success(`${format.toUpperCase()}报表下载完成`)
+        } catch (downloadError) {
+          console.error('表单下载方法失败，尝试fetch方式:', downloadError)
+          
+          // 回退到fetch API下载方式
+          try {
+            const response = await fetch(url)
+            
+            if (!response.ok) {
+              throw new Error(`下载失败: ${response.status} ${response.statusText}`)
+            }
+            
+            const blob = await response.blob()
+            const contentType = response.headers.get('content-type') || this.getContentType(format)
+            
+            // 创建下载链接
+            const blobUrl = window.URL.createObjectURL(blob)
+            const link = document.createElement('a')
+            link.href = blobUrl
+            link.download = `${report.title || '报表'}.${format}`
+            document.body.appendChild(link)
+            link.click()
+            document.body.removeChild(link)
+            window.URL.revokeObjectURL(blobUrl)
+            
+            this.$message.success(`${format.toUpperCase()}报表下载完成`)
+          } catch (fetchError) {
+            throw new Error(`无法下载报表: ${fetchError.message}`)
+          }
+        }
       } catch (error) {
         console.error('下载报表失败:', error)
-        this.$message.error('下载失败')
+        this.$message.error(`下载失败: ${error.message || '服务器错误'}`)
       }
     },
     

@@ -196,12 +196,19 @@
                 :label="subKey"
                 :name="subKey"
               >
-                <div class="chart-container">
+                <div v-if="subResult && subResult.chart_data" class="chart-container">
                   <img 
                     :src="`data:image/png;base64,${subResult.chart_data}`" 
                     alt="Chart"
                     style="max-width: 100%; height: auto;"
                   />
+                </div>
+                <div v-else class="empty-chart-container">
+                  <el-empty description="无法显示图表数据" :image-size="100">
+                    <template #description>
+                      <p>无法显示图表数据，可能是模型不支持该可视化类型。</p>
+                    </template>
+                  </el-empty>
                 </div>
               </el-tab-pane>
             </el-tabs>
@@ -241,7 +248,8 @@
 import { 
   generateDataVisualization,
   generateModelVisualization,
-  getDataPreview 
+  getDataPreview,
+  getModelsList 
 } from '@/api/mlApi'
 
 export default {
@@ -312,13 +320,32 @@ export default {
       }
     },
     
-    loadAvailableModels() {
-      // 模拟可用模型数据，实际应该从API获取
-      this.availableModels = [
-        { id: 'model_1', name: '随机森林模型' },
-        { id: 'model_2', name: 'XGBoost模型' },
-        { id: 'model_3', name: '线性回归模型' }
-      ]
+    async loadAvailableModels() {
+      try {
+        const response = await getModelsList()
+        console.log('可视化模型列表响应:', response)
+        
+        if (response.success && response.models) {
+          this.availableModels = response.models.map(model => ({
+            id: model.id,
+            name: `${model.name} (${model.type})`
+          }))
+          
+          console.log('加载的模型列表:', this.availableModels)
+          
+          if (this.availableModels.length === 0) {
+            this.$message.info('暂无可用的训练模型，请先训练模型')
+          }
+        } else {
+          console.warn('获取模型列表失败:', response.message)
+          this.availableModels = []
+          this.$message.warning('获取模型列表失败，请检查是否有已训练的模型')
+        }
+      } catch (error) {
+        console.error('加载模型列表失败:', error)
+        this.availableModels = []
+        this.$message.error('加载模型列表失败: ' + (error.message || '未知错误'))
+      }
     },
     
     onDataVizTypeChange() {
@@ -387,7 +414,15 @@ export default {
       
       this.loading.modelViz = true
       try {
-        const response = await generateModelVisualization(this.modelVizForm)
+        const params = {
+          type: this.modelVizForm.type,
+          model_id: this.modelVizForm.model_id,
+          chart_type: this.modelVizForm.chart_type
+        }
+        
+        console.log('发送模型可视化请求:', params)
+        const response = await generateModelVisualization(params)
+        console.log('模型可视化响应:', response)
         
         if (response.success) {
           const result = {
@@ -397,18 +432,52 @@ export default {
             ...response
           }
           
-          this.visualizationResults.push(result)
-          this.addToHistory(result)
-          
-          // 处理多个结果的情况
+          // 检查并处理响应格式
           if (response.results) {
-            result.activeTab = Object.keys(response.results)[0]
+            // 确保结果是有效的
+            const targetKeys = Object.keys(response.results)
+            if (targetKeys.length > 0) {
+              result.activeTab = targetKeys[0]
+              
+              // 调试查看结果格式
+              console.log('可视化结果格式：', response.results)
+              
+              // 检查结果中是否有任何有效的图表数据
+              let hasValidChartData = false
+              for (const key in response.results) {
+                if (response.results[key].chart_data) {
+                  hasValidChartData = true
+                  console.log(`${key} 有有效的chart_data`)
+                } else {
+                  console.warn(`${key} 没有chart_data`)
+                  // 添加空图表指示器
+                  response.results[key] = {
+                    ...response.results[key],
+                    chart_data: null,  // 确保前端可以识别这是缺失数据而不是格式错误
+                    message: '当前模型不支持此可视化类型或图表生成失败'
+                  }
+                }
+              }
+              
+              if (hasValidChartData) {
+                this.visualizationResults.push(result)
+                this.addToHistory(result)
+                this.$message.success('模型可视化生成成功')
+              } else {
+                this.$message.warning('当前模型不支持所选可视化类型，请尝试其他类型')
+              }
+            } else {
+              this.$message.warning('模型可视化未返回有效数据')
+            }
+          } else {
+            this.$message.warning('模型可视化响应格式错误')
           }
-          
-          this.$message.success('模型可视化生成成功')
+        } else {
+          this.$message.error(response.message || '生成模型可视化失败')
         }
       } catch (error) {
         console.error('生成模型可视化失败:', error)
+        this.$message.error('生成模型可视化失败: ' + (error.message || '未知错误'))
       } finally {
         this.loading.modelViz = false
       }
@@ -461,6 +530,7 @@ export default {
       this.loading.refresh = true
       try {
         await this.loadDataInfo()
+        await this.loadAvailableModels()
         this.$message.success('数据刷新成功')
       } catch (error) {
         this.$message.error('数据刷新失败: ' + error.message)
@@ -542,7 +612,7 @@ export default {
   color: #303133;
 }
 
-.chart-container {
+.chart-container, .empty-chart-container {
   min-height: 400px;
   width: 100%;
   background: white;

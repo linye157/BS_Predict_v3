@@ -54,6 +54,7 @@ class ReportService:
                 # Store report info
                 self.generated_reports[report_id] = {
                     'id': report_id,
+                    'title': report_data['project_info']['name'],
                     'timestamp': timestamp.isoformat(),
                     'type': report_type,
                     'format': report_format,
@@ -104,9 +105,13 @@ class ReportService:
         for report_id, info in self.generated_reports.items():
             reports.append({
                 'id': report_id,
+                'title': info.get('title', '未命名报表'),
                 'timestamp': info['timestamp'],
                 'type': info['type'],
-                'format': info['format']
+                'format': info['format'],
+                'formats': [info['format']],  # 前端期望的格式
+                'created_at': info['timestamp'],
+                'size': '生成中...'  # 简化处理，可以后续优化
             })
         
         return {
@@ -119,7 +124,7 @@ class ReportService:
         data = {
             'timestamp': datetime.now().isoformat(),
             'project_info': {
-                'name': params.get('project_name', '机器学习预测分析项目'),
+                'name': params.get('title', params.get('project_name', '机器学习预测分析项目')),
                 'description': params.get('project_description', '基于机器学习的工艺参数预测分析'),
                 'author': params.get('author', 'System User')
             },

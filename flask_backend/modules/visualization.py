@@ -46,19 +46,40 @@ class VisualizationService:
             viz_type = params.get('type', 'prediction')
             chart_type = params.get('chart_type', 'matplotlib')  # Only matplotlib supported
             
+            print(f"生成模型可视化: 类型={viz_type}, 图表引擎={chart_type}")
+            
+            result = None
             if viz_type == 'prediction':
-                return self._generate_prediction_plots(model_info, train_data, chart_type)
+                result = self._generate_prediction_plots(model_info, train_data, chart_type)
             elif viz_type == 'residuals':
-                return self._generate_residual_plots(model_info, train_data, chart_type)
+                result = self._generate_residual_plots(model_info, train_data, chart_type)
             elif viz_type == 'feature_importance':
-                return self._generate_feature_importance(model_info, chart_type)
+                result = self._generate_feature_importance(model_info, chart_type)
             elif viz_type == 'learning_curve':
-                return self._generate_learning_curve(model_info, train_data, chart_type)
+                result = self._generate_learning_curve(model_info, train_data, chart_type)
             else:
-                return {'success': False, 'message': f'Unsupported model visualization type: {viz_type}'}
+                return {'success': False, 'message': f'不支持的模型可视化类型: {viz_type}'}
+            
+            # 验证结果格式
+            if result and result.get('success') and result.get('results'):
+                print(f"生成可视化结果成功: {len(result['results'])} 个目标变量, 结果键: {list(result['results'].keys())}")
+                for key, val in result['results'].items():
+                    if not val.get('chart_data'):
+                        print(f"警告: {key} 没有图表数据!")
+            else:
+                if result:
+                    print(f"可视化失败: {result.get('message', '未知错误')}")
+                else:
+                    print("可视化函数未返回任何结果")
+                    result = {'success': False, 'message': '生成可视化失败: 未返回结果'}
+                
+            return result
                 
         except Exception as e:
-            return {'success': False, 'message': f'Failed to generate model visualization: {str(e)}'}
+            import traceback
+            print(f"模型可视化生成异常: {str(e)}")
+            print(traceback.format_exc())
+            return {'success': False, 'message': f'生成模型可视化失败: {str(e)}'}
     
 
     
@@ -326,9 +347,15 @@ class VisualizationService:
     def _generate_feature_importance(self, model_info, chart_type):
         """Generate feature importance plots"""
         try:
+            print("开始生成特征重要性图...")
+            
             model = model_info['model']
             feature_columns = model_info['feature_columns']
             target_columns = model_info['target_columns']
+            
+            # 记录实际模型类型
+            model_type = model_info.get('model_type', 'Unknown')
+            print(f"模型类型: {model_type}, 特征数量: {len(feature_columns)}, 目标变量: {target_columns}")
             
             results = {}
             
@@ -336,11 +363,41 @@ class VisualizationService:
                 current_model = model if len(target_columns) == 1 else model[target_col]
                 
                 # Check if model has feature importance
-                if hasattr(current_model, 'feature_importances_'):
-                    importance = current_model.feature_importances_
-                elif hasattr(current_model, 'coef_'):
-                    importance = np.abs(current_model.coef_)
-                else:
+                print(f"检查模型 {target_col} 是否支持特征重要性...")
+                has_importances = False
+                
+                try:
+                    if hasattr(current_model, 'feature_importances_'):
+                        print(f"找到feature_importances_属性")
+                        importance = current_model.feature_importances_
+                        has_importances = True
+                    elif hasattr(current_model, 'coef_'):
+                        print(f"找到coef_属性")
+                        importance = np.abs(current_model.coef_)
+                        # 确保1维数组
+                        if importance.ndim > 1:
+                            importance = importance.sum(axis=0)
+                        has_importances = True
+                    else:
+                        # 尝试提取子模型的特征重要性
+                        if hasattr(current_model, 'best_estimator_') and hasattr(current_model.best_estimator_, 'feature_importances_'):
+                            print(f"从best_estimator_中提取特征重要性")
+                            importance = current_model.best_estimator_.feature_importances_
+                            has_importances = True
+                        elif hasattr(current_model, 'best_estimator_') and hasattr(current_model.best_estimator_, 'coef_'):
+                            print(f"从best_estimator_中提取系数")
+                            importance = np.abs(current_model.best_estimator_.coef_)
+                            if importance.ndim > 1:
+                                importance = importance.sum(axis=0)
+                            has_importances = True
+                        else:
+                            print(f"模型 {target_col} 不支持特征重要性功能") 
+                except Exception as imp_error:
+                    print(f"提取特征重要性时出错: {str(imp_error)}")
+                    has_importances = False
+                
+                if not has_importances:
+                    print(f"跳过 {target_col} 的特征重要性可视化")
                     continue
                 
                 # Create importance dataframe
@@ -385,10 +442,83 @@ class VisualizationService:
             return {'success': False, 'message': f'Failed to generate feature importance plot: {str(e)}'}
     
     def _generate_learning_curve(self, model_info, train_data, chart_type):
-        """Generate learning curve (simplified version)"""
-        # This is a placeholder for learning curve implementation
-        # In a full implementation, you would track training history
-        return {
-            'success': False,
-            'message': 'Learning curve feature not yet implemented, requires recording learning history during training'
-        } 
+        """Generate learning curve"""
+        try:
+            from sklearn.model_selection import learning_curve
+            from sklearn.base import clone
+            
+            model = model_info['model']
+            feature_columns = model_info['feature_columns']
+            target_columns = model_info['target_columns']
+            
+            X = train_data[feature_columns]
+            y_actual = train_data[target_columns]
+            
+            results = {}
+            
+            for target_col in target_columns:
+                current_model = model if len(target_columns) == 1 else model[target_col]
+                y_target = y_actual.iloc[:, 0] if len(target_columns) == 1 else y_actual[target_col]
+                
+                # Clone the model to avoid modifying the original
+                model_clone = clone(current_model)
+                
+                # Generate learning curve
+                train_sizes = np.linspace(0.1, 1.0, 10)
+                train_sizes_abs, train_scores, val_scores = learning_curve(
+                    model_clone, X, y_target, 
+                    train_sizes=train_sizes, 
+                    cv=5, 
+                    scoring='neg_mean_squared_error',
+                    n_jobs=1,
+                    random_state=42
+                )
+                
+                # Convert to positive values (MSE)
+                train_scores = -train_scores
+                val_scores = -val_scores
+                
+                # Calculate mean and std
+                train_mean = np.mean(train_scores, axis=1)
+                train_std = np.std(train_scores, axis=1)
+                val_mean = np.mean(val_scores, axis=1)
+                val_std = np.std(val_scores, axis=1)
+                
+                # Matplotlib version
+                plt.figure(figsize=(10, 6))
+                plt.plot(train_sizes_abs, train_mean, 'o-', color='blue', label='Training Score')
+                plt.fill_between(train_sizes_abs, train_mean - train_std, train_mean + train_std, alpha=0.1, color='blue')
+                
+                plt.plot(train_sizes_abs, val_mean, 'o-', color='red', label='Validation Score')
+                plt.fill_between(train_sizes_abs, val_mean - val_std, val_mean + val_std, alpha=0.1, color='red')
+                
+                plt.xlabel('Training Set Size')
+                plt.ylabel('Mean Squared Error')
+                plt.title(f'Learning Curve - {target_col}')
+                plt.legend(loc='best')
+                plt.grid(True, alpha=0.3)
+                plt.tight_layout()
+                
+                # Convert to base64
+                img_buffer = io.BytesIO()
+                plt.savefig(img_buffer, format='png', dpi=300, bbox_inches='tight')
+                img_buffer.seek(0)
+                img_base64 = base64.b64encode(img_buffer.getvalue()).decode()
+                plt.close()
+                
+                results[target_col] = {
+                    'chart_data': img_base64,
+                    'chart_type': 'matplotlib',
+                    'train_sizes': train_sizes_abs.tolist(),
+                    'train_scores': train_mean.tolist(),
+                    'val_scores': val_mean.tolist()
+                }
+            
+            return {
+                'success': True,
+                'results': results,
+                'message': 'Learning curves generated successfully'
+            }
+            
+        except Exception as e:
+            return {'success': False, 'message': f'Failed to generate learning curve: {str(e)}'} 

@@ -232,22 +232,32 @@ export const generateModelVisualization = (params) => {
 
 // 报表相关API
 export const generateReport = (params) => {
-  return request({
+  return api({
     url: '/api/reports/generate',
     method: 'post',
     data: params
   })
+  .then(response => response.data)
+  .catch(error => {
+    console.error('生成报表失败:', error);
+    return { success: false, message: error.message || '生成报表失败' };
+  })
 }
 
 export const getReportsList = () => {
-  return request({
+  return api({
     url: '/api/reports/list',
     method: 'get'
+  })
+  .then(response => response.data)
+  .catch(error => {
+    console.error('获取报表列表失败:', error);
+    return { success: false, reports: [] };
   })
 }
 
 export const downloadReport = (reportId, fileFormat) => {
-  return request({
+  return api({
     url: `/api/reports/download/${reportId}/${fileFormat}`,
     method: 'get',
     responseType: 'blob'
@@ -255,7 +265,7 @@ export const downloadReport = (reportId, fileFormat) => {
 }
 
 export const downloadReportFile = (reportId, fileFormat) => {
-  return request({
+  return api({
     url: `/api/reports/download/${reportId}/${fileFormat}`,
     method: 'get',
     responseType: 'blob'
@@ -263,8 +273,34 @@ export const downloadReportFile = (reportId, fileFormat) => {
 }
 
 export const deleteReport = (reportId) => {
-  return request({
+  return api({
     url: `/api/reports/${reportId}`,
     method: 'delete'
+  })
+  .then(response => response.data)
+  .catch(error => {
+    console.error('删除报表失败:', error);
+    return { success: false, message: error.message || '删除报表失败' };
+  })
+}
+
+// 模型管理相关API
+export const getModelsList = () => {
+  return api({
+    url: '/api/models/list',
+    method: 'get'
+  })
+  .then(response => response.data)
+  .catch(error => {
+    console.error('获取模型列表失败:', error);
+    return { success: false, models: [] };
+  })
+}
+
+export const downloadModel = (modelId) => {
+  return api({
+    url: `/api/models/download/${modelId}`,
+    method: 'get',
+    responseType: 'blob'
   })
 } 

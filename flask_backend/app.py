@@ -245,6 +245,17 @@ def train_model():
             })
             print(f"模型训练成功: {model_id}")
             
+            # 保存模型到文件系统
+            try:
+                model_file_path = os.path.join(app.config['MODELS_FOLDER'], f'{model_id}.pkl')
+                save_result = ml_service.save_model(result['model'], model_file_path)
+                if save_result['success']:
+                    print(f"模型已保存到: {model_file_path}")
+                else:
+                    print(f"模型保存失败: {save_result['message']}")
+            except Exception as e:
+                print(f"模型保存异常: {str(e)}")
+            
             # 创建JSON可序列化的响应（移除模型对象）
             json_result = result.copy()
             if 'model' in json_result:
@@ -332,7 +343,24 @@ def train_stacking():
             # 存储完整的模型信息到app_state（包含模型对象）
             app_state['models'][model_id] = result['model']
             app_state['current_model'] = model_id
+            app_state['training_history'].append({
+                'timestamp': datetime.now().isoformat(),
+                'model_type': 'StackingEnsemble',
+                'model_id': model_id,
+                'metrics': result.get('metrics', {})
+            })
             print(f"Stacking模型训练成功: {model_id}")
+            
+            # 保存模型到文件系统
+            try:
+                model_file_path = os.path.join(app.config['MODELS_FOLDER'], f'{model_id}.pkl')
+                save_result = ml_service.save_model(result['model'], model_file_path)
+                if save_result['success']:
+                    print(f"Stacking模型已保存到: {model_file_path}")
+                else:
+                    print(f"Stacking模型保存失败: {save_result['message']}")
+            except Exception as e:
+                print(f"Stacking模型保存异常: {str(e)}")
             
             # 创建JSON可序列化的响应（移除模型对象）
             json_result = result.copy()
@@ -380,7 +408,24 @@ def run_automl():
             # 存储完整的模型信息到app_state（包含模型对象）
             app_state['models'][model_id] = result['model']
             app_state['current_model'] = model_id
+            app_state['training_history'].append({
+                'timestamp': datetime.now().isoformat(),
+                'model_type': 'AutoML',
+                'model_id': model_id,
+                'metrics': result.get('results', {})
+            })
             print(f"AutoML训练成功: {model_id}")
+            
+            # 保存模型到文件系统
+            try:
+                model_file_path = os.path.join(app.config['MODELS_FOLDER'], f'{model_id}.pkl')
+                save_result = ml_service.save_model(result['model'], model_file_path)
+                if save_result['success']:
+                    print(f"AutoML模型已保存到: {model_file_path}")
+                else:
+                    print(f"AutoML模型保存失败: {save_result['message']}")
+            except Exception as e:
+                print(f"AutoML模型保存异常: {str(e)}")
             
             # 创建JSON可序列化的响应（移除模型对象）
             json_result = result.copy()
@@ -439,34 +484,86 @@ def generate_report():
     """Generate analysis report"""
     try:
         params = request.get_json()
-        model_id = params.get('model_id') or app_state.get('current_model')
+        print(f"收到报表生成请求: {params}")
+        
+        # 获取选择的模型信息
+        selected_models = params.get('selected_models', [])
+        model_id = None
+        model_info = None
+        
+        if selected_models and len(selected_models) > 0:
+            # 使用第一个选择的模型
+            model_id = selected_models[0]
+            model_info = app_state['models'].get(model_id)
+        elif app_state.get('current_model'):
+            # 使用当前模型
+            model_id = app_state.get('current_model')
+            model_info = app_state['models'].get(model_id)
+        
+        print(f"使用模型: {model_id}")
         
         result = report_service.generate_report(
             app_state['train_data'],
             app_state['test_data'],
-            app_state['models'].get(model_id) if model_id else None,
+            model_info,
             app_state['training_history'],
             params
         )
         
         return jsonify(result)
     except Exception as e:
+        print(f"报表生成异常: {str(e)}")
         return jsonify({'success': False, 'message': str(e)}), 500
 
 @app.route('/api/reports/download/<report_id>/<file_format>', methods=['GET'])
 def download_report(report_id, file_format):
     """Download report in specified format"""
     try:
+        # 检查是否要求直接查看内容（不作为附件下载）
+        preview_mode = request.args.get('preview', 'false').lower() == 'true'
+        
         result = report_service.download_report(report_id, file_format)
         if result['success']:
-            return send_file(
-                result['file_path'],
-                as_attachment=True,
-                download_name=result['filename']
-            )
+            # 检查文件是否存在
+            if not os.path.exists(result['file_path']):
+                print(f"报表文件不存在: {result['file_path']}")
+                return jsonify({'error': f'报表文件 {os.path.basename(result["file_path"])} 不存在'}), 404
+                
+            print(f"下载报表: {report_id}, 格式: {file_format}, 文件: {os.path.basename(result['file_path'])}")
+            
+            # 如果是HTML预览模式，直接返回内容
+            if file_format == 'html' and preview_mode:
+                try:
+                    with open(result['file_path'], 'r', encoding='utf-8') as f:
+                        html_content = f.read()
+                    print(f"成功读取HTML内容，长度: {len(html_content)}")
+                    return html_content
+                except Exception as html_error:
+                    print(f"读取HTML内容失败: {str(html_error)}")
+                    return jsonify({'error': f'读取HTML内容失败: {str(html_error)}'}), 500
+            
+            try:
+                response = send_file(
+                    result['file_path'],
+                    as_attachment=True if not preview_mode else False,
+                    download_name=result['filename'],
+                    mimetype='text/html' if file_format == 'html' else None
+                )
+                response.headers["Content-Disposition"] = f"{'attachment' if not preview_mode else 'inline'}; filename={result['filename']}"
+                response.headers["Cache-Control"] = "no-cache, no-store, must-revalidate"
+                response.headers["Pragma"] = "no-cache"
+                response.headers["Expires"] = "0"
+                print(f"成功发送文件，设置了Content-Disposition: {response.headers.get('Content-Disposition')}")
+                return response
+            except Exception as sf_error:
+                print(f"send_file失败: {str(sf_error)}")
+                return jsonify({'error': f'发送文件失败: {str(sf_error)}'}), 500
         else:
             return jsonify(result), 404
     except Exception as e:
+        import traceback
+        print(f"下载报表异常: {str(e)}")
+        print(traceback.format_exc())
         return jsonify({'error': str(e)}), 500
 
 # System status endpoints
@@ -564,6 +661,63 @@ def options_automl_run():
     response.headers.add('Access-Control-Allow-Methods', 'POST, OPTIONS')
     response.headers.add('Access-Control-Max-Age', '3600')
     return response
+
+# Model management endpoints
+@app.route('/api/models/list', methods=['GET'])
+def get_models_list():
+    """Get list of trained models"""
+    try:
+        models_list = []
+        for model_id, model_info in app_state['models'].items():
+            models_list.append({
+                'id': model_id,
+                'name': model_info.get('model_name', 'Unknown Model'),
+                'type': model_info.get('model_type', 'Unknown'),
+                'training_time': model_info.get('training_time', ''),
+                'feature_count': len(model_info.get('feature_columns', [])),
+                'target_count': len(model_info.get('target_columns', []))
+            })
+        
+        return jsonify({
+            'success': True,
+            'models': models_list,
+            'total_count': len(models_list)
+        })
+    except Exception as e:
+        return jsonify({'success': False, 'message': str(e)}), 500
+
+@app.route('/api/models/download/<model_id>', methods=['GET'])
+def download_model(model_id):
+    """Download trained model file"""
+    try:
+        if model_id not in app_state['models']:
+            return jsonify({'error': 'Model not found'}), 404
+            
+        model_file_path = os.path.join(app.config['MODELS_FOLDER'], f'{model_id}.pkl')
+        if not os.path.exists(model_file_path):
+            return jsonify({'error': 'Model file not found'}), 404
+            
+        model_info = app_state['models'][model_id]
+        filename = f"{model_info.get('model_name', 'model')}_{model_id[:8]}.pkl"
+        
+        return send_file(
+            model_file_path,
+            as_attachment=True,
+            download_name=filename,
+            mimetype='application/octet-stream'
+        )
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+# Reports list endpoint
+@app.route('/api/reports/list', methods=['GET'])
+def get_reports_list():
+    """Get list of generated reports"""
+    try:
+        result = report_service.get_report_list()
+        return jsonify(result)
+    except Exception as e:
+        return jsonify({'success': False, 'message': str(e)}), 500
 
 # 通用OPTIONS处理，捕获所有API路径的预检请求
 @app.route('/api/<path:path>', methods=['OPTIONS'])
