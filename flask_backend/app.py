@@ -7,6 +7,7 @@ import io
 import joblib
 from pathlib import Path
 from datetime import datetime
+import json
 
 # Import modules
 from modules.data_processing import DataProcessingService
@@ -17,7 +18,8 @@ from modules.visualization import VisualizationService
 from modules.report import ReportService
 
 app = Flask(__name__)
-CORS(app)  # Enable CORS for all routes
+# 增强CORS配置，允许所有头信息和方法
+CORS(app, resources={r"/api/*": {"origins": "*", "allow_headers": "*", "methods": "*"}})
 
 # Configuration
 app.config['UPLOAD_FOLDER'] = 'uploads'
@@ -119,7 +121,19 @@ def preview_data():
 def preprocess_data():
     """Apply data preprocessing"""
     try:
-        params = request.get_json()
+        # 支持两种请求格式：JSON和表单
+        if request.is_json:
+            params = request.get_json()
+        else:
+            # 尝试从表单数据中获取参数
+            form_data = request.form.get('data')
+            if form_data:
+                params = json.loads(form_data)
+            else:
+                return jsonify({'success': False, 'message': '无效的请求格式'}), 400
+        
+        print(f"接收到预处理参数: {params}")
+        
         result = data_service.preprocess_data(
             app_state['train_data'], 
             app_state['test_data'], 
@@ -143,6 +157,7 @@ def preprocess_data():
         
         return jsonify(response)
     except Exception as e:
+        print(f"预处理错误: {str(e)}")
         return jsonify({'success': False, 'message': str(e)}), 500
 
 @app.route('/api/data/download/<data_type>/<file_format>', methods=['GET'])
@@ -380,6 +395,43 @@ def get_system_status():
         status['test_data_shape'] = app_state['test_data'].shape
         
     return jsonify(status)
+
+# 特别处理OPTIONS请求
+@app.route('/api/data/upload', methods=['OPTIONS'])
+def options_upload():
+    response = app.make_default_options_response()
+    response.headers.add('Access-Control-Allow-Origin', '*')
+    response.headers.add('Access-Control-Allow-Headers', 'Content-Type')
+    response.headers.add('Access-Control-Allow-Methods', 'POST')
+    return response
+
+# 特别处理预处理OPTIONS请求
+@app.route('/api/data/preprocess', methods=['OPTIONS'])
+def options_preprocess():
+    response = app.make_default_options_response()
+    response.headers.add('Access-Control-Allow-Origin', '*')
+    response.headers.add('Access-Control-Allow-Headers', 'Content-Type')
+    response.headers.add('Access-Control-Allow-Methods', 'POST')
+    return response
+
+# 特别处理预览OPTIONS请求
+@app.route('/api/data/preview', methods=['OPTIONS'])
+def options_preview():
+    response = app.make_default_options_response()
+    response.headers.add('Access-Control-Allow-Origin', '*')
+    response.headers.add('Access-Control-Allow-Headers', 'Content-Type')
+    response.headers.add('Access-Control-Allow-Methods', 'GET')
+    return response
+
+# 通用OPTIONS处理，捕获所有API路径的预检请求
+@app.route('/api/<path:path>', methods=['OPTIONS'])
+def options_handler(path):
+    response = app.make_default_options_response()
+    response.headers.add('Access-Control-Allow-Origin', '*')
+    response.headers.add('Access-Control-Allow-Headers', 'Content-Type, Authorization')
+    response.headers.add('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS')
+    response.headers.add('Access-Control-Max-Age', '3600')  # 缓存预检请求结果1小时
+    return response
 
 if __name__ == '__main__':
     app.run(debug=True, host='0.0.0.0', port=5000) 

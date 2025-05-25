@@ -26,6 +26,11 @@ export const loadDefaultData = () => {
 }
 
 export const uploadData = (formData) => {
+  // 确保正确打印上传的文件信息以便调试
+  for (let [key, value] of formData.entries()) {
+    console.log(`${key}: ${value instanceof File ? value.name : value}`);
+  }
+  
   return axios({
     url: 'http://127.0.0.1:5000/api/data/upload',
     method: 'post',

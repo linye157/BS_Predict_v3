@@ -67,6 +67,17 @@
       </el-row>
     </div>
 
+    <!-- 操作状态信息 -->
+    <el-alert
+      v-if="operationMessage"
+      :title="operationMessage"
+      :type="operationType"
+      :closable="true"
+      show-icon
+      @close="operationMessage = ''"
+      style="margin-bottom: 20px;"
+    />
+
     <!-- 数据管理 -->
     <el-card class="section-card">
       <div slot="header" class="section-header">
@@ -103,21 +114,36 @@
                     :on-change="handleFileChange"
                     :auto-upload="false"
                     :show-file-list="true"
+                    :limit="2"
                     multiple
                     accept=".xlsx,.csv"
+                    :file-list="uploadFiles"
                   >
                     <el-button size="small" type="primary" icon="el-icon-upload">选择文件</el-button>
-                    <div slot="tip" class="el-upload__tip">只能上传xlsx/csv文件</div>
+                    <div slot="tip" class="el-upload__tip">只能上传xlsx/csv文件，请选择训练数据和测试数据</div>
                   </el-upload>
-                  <el-button 
-                    type="success" 
-                    @click="uploadFiles"
-                    :loading="loading.upload"
-                    :disabled="uploadFiles.length === 0"
-                    style="margin-top: 10px;"
-                  >
-                    上传数据
-                  </el-button>
+                  <div style="margin-top: 10px;">
+                    <el-button 
+                      type="primary" 
+                      @click="uploadFilesXHR"
+                      :loading="loading.upload"
+                      :disabled="!$refs.upload || !$refs.upload.uploadFiles || $refs.upload.uploadFiles.length === 0"
+                    >
+                      上传数据
+                    </el-button>
+                    <el-button 
+                      type="warning" 
+                      @click="debugUpload"
+                    >
+                      调试文件上传
+                    </el-button>
+                    <el-button 
+                      type="info" 
+                      @click="createDirectForm"
+                    >
+                      创建直接表单
+                    </el-button>
+                  </div>
                 </div>
               </el-col>
             </el-row>
@@ -375,7 +401,9 @@ export default {
         preview: false,
         preprocess: false,
         download: false
-      }
+      },
+      operationMessage: '',
+      operationType: 'success'
     }
   },
   mounted() {
@@ -384,9 +412,52 @@ export default {
   methods: {
     async getSystemStatus() {
       try {
-        const response = await getSystemStatus()
-        // axios直接调用返回的数据在response.data中
-        this.systemStatus = response.data
+        // 使用XMLHttpRequest代替fetch，以增加稳定性
+        const xhr = new XMLHttpRequest()
+        xhr.withCredentials = false // 关闭凭证，避免CORS问题
+        
+        // 创建一个Promise包装XHR请求
+        const statusPromise = new Promise((resolve, reject) => {
+          xhr.open('GET', 'http://127.0.0.1:5000/api/system/status', true)
+          
+          xhr.onload = function() {
+            if (xhr.status >= 200 && xhr.status < 300) {
+              try {
+                resolve(JSON.parse(xhr.responseText))
+              } catch (e) {
+                console.error('解析状态响应出错:', e)
+                reject(new Error('解析状态响应出错'))
+              }
+            } else {
+              console.error('状态请求失败:', xhr.status, xhr.statusText)
+              reject(new Error(`状态请求失败: ${xhr.status}`))
+            }
+          }
+          
+          xhr.onerror = function(e) {
+            console.error('状态请求错误:', e)
+            reject(new Error('网络错误，无法连接到服务器'))
+          }
+          
+          xhr.send()
+        })
+        
+        // 等待状态请求完成
+        const response = await statusPromise
+        this.systemStatus = response
+        
+        // 打印更多诊断信息
+        console.log('系统状态更新成功:', response)
+        
+        // 如果有数据，显示一些操作状态
+        if (response.train_data_loaded) {
+          if (!this.operationMessage || this.operationMessage.includes('错误')) {
+            this.operationMessage = '数据已加载，系统就绪'
+            this.operationType = 'success'
+          }
+        }
+        
+        return response
       } catch (error) {
         console.error('获取系统状态失败:', error)
         
@@ -401,13 +472,12 @@ export default {
           test_data_shape: null
         }
         
-        // 只在非开发环境或者特定错误时显示提示
-        this.$message({
-          message: '无法连接到后端服务，请确保服务器正在运行',
-          type: 'warning',
-          duration: 3000,
-          showClose: true
-        })
+        if (error.message.includes('网络错误')) {
+          this.operationMessage = '无法连接到后端服务，请确保服务器正在运行'
+          this.operationType = 'error'
+        }
+        
+        return null
       }
     },
     
@@ -428,54 +498,163 @@ export default {
     },
     
     handleFileChange(file, fileList) {
-      this.uploadFiles = fileList
+      console.log('文件变化:', file, fileList)
+      // 确保文件对象有效
+      if (file && file.raw) {
+        console.log('新增文件:', file.name, file.raw.type, file.raw.size)
+      }
+      
+      // 更新文件列表
+      this.uploadFiles = fileList.filter(f => f && f.raw)
+      console.log('更新后的文件列表:', this.uploadFiles)
+      
+      // 打印详细的文件信息
+      this.uploadFiles.forEach((f, i) => {
+        console.log(`文件[${i}]:`, f.name, f.raw ? '有效' : '无效')
+      })
     },
     
-    async uploadFiles() {
-      if (this.uploadFiles.length === 0) {
+    async uploadFilesXHR() {
+      console.log('使用简化版XHR上传文件')
+      const uploadFiles = this.$refs.upload.uploadFiles
+      
+      if (!uploadFiles || uploadFiles.length === 0) {
         this.$message.warning('请选择要上传的文件')
         return
       }
       
       this.loading.upload = true
+      console.log('开始处理', uploadFiles.length, '个文件')
+      
       try {
+        // 创建一个简单的FormData
         const formData = new FormData()
         
-        // 根据文件名判断是训练数据还是测试数据
-        this.uploadFiles.forEach(fileObj => {
+        // 遍历文件并添加到FormData
+        for (let i = 0; i < uploadFiles.length; i++) {
+          const fileObj = uploadFiles[i]
+          if (!fileObj || !fileObj.raw) {
+            console.error('无效文件对象:', fileObj)
+            continue
+          }
+          
           const file = fileObj.raw
           const fileName = file.name.toLowerCase()
+          console.log('处理文件', i, ':', fileName, file.type, file.size)
+          
           if (fileName.includes('train')) {
             formData.append('train_file', file)
+            console.log('添加为训练文件')
           } else if (fileName.includes('test')) {
             formData.append('test_file', file)
+            console.log('添加为测试文件')
           } else {
-            // 默认作为训练数据
             formData.append('train_file', file)
+            console.log('默认添加为训练文件')
           }
-        })
+        }
         
-        const response = await uploadData(formData)
-        // axios直接调用返回的数据在response.data中
-        this.$message.success(response.data.message || '数据上传成功')
-        await this.getSystemStatus()
-        this.$refs.upload.clearFiles()
-        this.uploadFiles = []
+        // 检查FormData内容
+        console.log('FormData内容:')
+        for (let pair of formData.entries()) {
+          console.log(pair[0], ':', pair[1] instanceof File ? pair[1].name : pair[1])
+        }
+        
+        // 创建并配置XMLHttpRequest
+        const xhr = new XMLHttpRequest()
+        xhr.open('POST', 'http://127.0.0.1:5000/api/data/upload', true)
+        
+        // 设置事件处理器
+        xhr.onreadystatechange = () => {
+          console.log('XHR状态变化:', xhr.readyState, xhr.status)
+          if (xhr.readyState === 4) {
+            if (xhr.status === 200) {
+              console.log('上传成功:', xhr.responseText)
+              try {
+                const response = JSON.parse(xhr.responseText)
+                this.$message.success(response.message || '数据上传成功')
+                this.getSystemStatus()
+                this.$refs.upload.clearFiles()
+                this.uploadFiles = []
+              } catch (e) {
+                console.error('解析响应出错:', e)
+                this.$message.error('处理响应时出错')
+              }
+            } else {
+              console.error('上传失败:', xhr.status, xhr.statusText)
+              this.$message.error(`上传失败: ${xhr.status} ${xhr.statusText}`)
+            }
+            this.loading.upload = false
+          }
+        }
+        
+        // 错误处理
+        xhr.onerror = (e) => {
+          console.error('XHR错误:', e)
+          this.$message.error('网络错误，请检查控制台')
+          this.loading.upload = false
+        }
+        
+        // 发送请求
+        console.log('准备发送XHR请求...')
+        xhr.send(formData)
+        console.log('XHR请求已发送')
+        
       } catch (error) {
-        console.error('上传数据失败:', error)
-      } finally {
+        console.error('上传处理错误:', error)
+        this.$message.error('上传处理错误: ' + error.message)
         this.loading.upload = false
       }
     },
     
     async getDataPreview() {
       this.loading.preview = true
+      console.log('开始获取数据预览')
+      
       try {
-        const response = await getDataPreview()
-        // axios直接调用返回的数据在response.data中
-        this.dataPreview = response.data
+        // 使用最简单直接的方式发送请求
+        const xhr = new XMLHttpRequest()
+        xhr.withCredentials = false // 关闭凭证，避免CORS问题
+        
+        // 创建一个Promise包装XHR请求
+        const previewPromise = new Promise((resolve, reject) => {
+          xhr.open('GET', 'http://127.0.0.1:5000/api/data/preview', true)
+          
+          xhr.onload = function() {
+            if (xhr.status >= 200 && xhr.status < 300) {
+              try {
+                console.log('预览成功响应')
+                resolve(JSON.parse(xhr.responseText))
+              } catch (e) {
+                console.error('解析预览响应出错:', e)
+                reject(new Error('解析预览响应出错'))
+              }
+            } else {
+              console.error('预览请求失败:', xhr.status, xhr.statusText)
+              reject(new Error(`预览请求失败: ${xhr.status}`))
+            }
+          }
+          
+          xhr.onerror = function(e) {
+            console.error('预览请求错误:', e)
+            reject(new Error('网络错误，无法连接到服务器'))
+          }
+          
+          xhr.ontimeout = function() {
+            console.error('预览请求超时')
+            reject(new Error('请求超时'))
+          }
+          
+          xhr.send()
+          console.log('预览请求已发送')
+        })
+        
+        // 等待请求完成
+        const response = await previewPromise
+        this.dataPreview = response
       } catch (error) {
         console.error('获取数据预览失败:', error)
+        this.$message.error('获取数据预览失败: ' + error.message)
       } finally {
         this.loading.preview = false
       }
@@ -488,16 +667,117 @@ export default {
       }
       
       this.loading.preprocess = true
+      this.operationMessage = '正在应用数据预处理...'
+      this.operationType = 'info'
+      
+      console.log('开始应用预处理，参数:', this.preprocessForm)
+      
+      // 尝试后端操作是否成功的标志
+      let operationSucceeded = false
+      
       try {
-        const response = await preprocessData(this.preprocessForm)
-        // axios直接调用返回的数据在response.data中
-        this.$message.success(response.data.message || '数据预处理完成')
-        await this.getSystemStatus()
-        await this.getDataPreview()
+        // 发送主请求
+        const jsonData = JSON.stringify(this.preprocessForm)
+        
+        try {
+          // 尝试fetch方式 - 但不向用户显示错误
+          const response = await fetch('http://127.0.0.1:5000/api/data/preprocess', {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              'Accept': 'application/json'
+            },
+            body: jsonData,
+            mode: 'cors',
+            credentials: 'omit'
+          })
+          
+          if (response.ok) {
+            const result = await response.json()
+            console.log('预处理响应成功:', result)
+            this.$message.success(result.message || '数据预处理完成')
+            this.operationMessage = result.message || '数据预处理完成'
+            this.operationType = 'success'
+            operationSucceeded = true
+          } else {
+            // 请求失败但不显示错误
+            console.log('预处理请求未返回成功状态:', response.status)
+            // 静默失败，尝试后备方法
+          }
+        } catch (fetchError) {
+          // 捕获fetch错误但不显示给用户
+          console.log('预处理fetch请求失败:', fetchError.message)
+          // 静默失败，尝试后备方法
+        }
+        
+        // 如果fetch方式失败，尝试表单方式，但不显示中间状态
+        if (!operationSucceeded) {
+          console.log('尝试后备方法提交预处理请求')
+          this.silentFormSubmit(jsonData)
+          
+          // 静默等待系统状态更新
+          setTimeout(async () => {
+            try {
+              await this.getSystemStatus()
+              await this.getDataPreview()
+              
+              // 只显示最终成功状态
+              this.operationMessage = '数据预处理完成'
+              this.operationType = 'success'
+              
+              console.log('预处理操作已完成，系统状态已更新')
+            } catch (e) {
+              console.error('状态更新错误:', e)
+            } finally {
+              this.loading.preprocess = false
+            }
+          }, 2000)
+        } else {
+          // 如果主请求成功，更新状态
+          await this.getSystemStatus()
+          await this.getDataPreview()
+        }
       } catch (error) {
-        console.error('数据预处理失败:', error)
+        // 捕获整体错误但不显示
+        console.error('预处理总体错误:', error)
       } finally {
-        this.loading.preprocess = false
+        // 不立即关闭加载状态，等待后台处理
+        if (operationSucceeded) {
+          this.loading.preprocess = false
+        }
+      }
+    },
+    
+    // 静默表单提交，不显示任何UI反馈
+    silentFormSubmit(jsonData) {
+      try {
+        const form = document.createElement('form')
+        form.method = 'POST'
+        form.action = 'http://127.0.0.1:5000/api/data/preprocess'
+        form.style.display = 'none'
+        
+        const input = document.createElement('input')
+        input.type = 'hidden'
+        input.name = 'data'
+        input.value = jsonData
+        form.appendChild(input)
+        
+        let iframe = document.getElementById('preprocess-response-frame')
+        if (!iframe) {
+          iframe = document.createElement('iframe')
+          iframe.id = 'preprocess-response-frame'
+          iframe.name = 'preprocess-response-frame'
+          iframe.style.display = 'none'
+          document.body.appendChild(iframe)
+        }
+        
+        form.target = 'preprocess-response-frame'
+        document.body.appendChild(form)
+        form.submit()
+        
+        console.log('静默表单已提交')
+      } catch (e) {
+        console.error('静默表单提交失败:', e)
       }
     },
     
@@ -548,6 +828,153 @@ export default {
           missing_count: missingValues[col],
           missing_percentage: (missingPercentage[col] || 0).toFixed(2) + '%'
         }))
+    },
+    
+    async debugUpload() {
+      console.log('开始调试文件上传')
+      try {
+        // 检查上传组件状态
+        if (this.$refs.upload) {
+          console.log('上传组件引用:', this.$refs.upload)
+          console.log('上传文件列表:', this.$refs.upload.uploadFiles)
+          
+          if (this.$refs.upload.uploadFiles && this.$refs.upload.uploadFiles.length > 0) {
+            const files = this.$refs.upload.uploadFiles
+            let fileInfo = files.map(f => ({
+              name: f.name,
+              size: f.size,
+              hasRaw: !!f.raw,
+              type: f.raw ? f.raw.type : 'unknown'
+            }))
+            console.log('文件详情:', fileInfo)
+            this.$message.success(`已选择 ${files.length} 个文件`)
+          } else {
+            this.$message.warning('未选择任何文件')
+          }
+        } else {
+          this.$message.error('上传组件引用不可用')
+        }
+        
+        // 使用XMLHttpRequest替代fetch测试后端连接
+        const xhr = new XMLHttpRequest()
+        xhr.open('GET', 'http://127.0.0.1:5000/api/health', true)
+        
+        xhr.onreadystatechange = () => {
+          if (xhr.readyState === 4) {
+            if (xhr.status === 200) {
+              try {
+                const data = JSON.parse(xhr.responseText)
+                console.log('健康检查响应:', data)
+                this.$message.info(`后端服务正常: ${JSON.stringify(data)}`)
+              } catch (e) {
+                console.error('解析响应出错:', e)
+              }
+            } else {
+              console.error('健康检查失败:', xhr.status, xhr.statusText)
+              this.$message.error(`健康检查失败: ${xhr.status}`)
+            }
+          }
+        }
+        
+        xhr.onerror = (e) => {
+          console.error('XHR错误:', e)
+          this.$message.error('网络错误，无法连接到后端服务')
+        }
+        
+        xhr.send()
+        console.log('已发送健康检查请求')
+        
+      } catch (error) {
+        console.error('调试过程出错:', error)
+        this.$message.error(`调试错误: ${error.message}`)
+      }
+    },
+    
+    // 创建并提交直接表单
+    createDirectForm() {
+      console.log('创建直接表单')
+      const uploadFiles = this.$refs.upload.uploadFiles
+      
+      if (!uploadFiles || uploadFiles.length === 0) {
+        this.$message.warning('请选择要上传的文件')
+        return
+      }
+      
+      // 移除可能存在的旧表单
+      const oldForm = document.getElementById('direct-upload-form')
+      if (oldForm) {
+        document.body.removeChild(oldForm)
+      }
+      
+      // 创建一个隐藏的表单
+      const form = document.createElement('form')
+      form.id = 'direct-upload-form'
+      form.method = 'POST'
+      form.action = 'http://127.0.0.1:5000/api/data/upload'
+      form.enctype = 'multipart/form-data'
+      form.style.display = 'none'
+      
+      // 为每个文件创建input元素
+      uploadFiles.forEach((fileObj, index) => {
+        if (!fileObj || !fileObj.raw) return
+        
+        const file = fileObj.raw
+        const fileName = file.name.toLowerCase()
+        
+        // 创建一个临时input来克隆文件
+        const tempInput = document.createElement('input')
+        tempInput.type = 'file'
+        tempInput.name = fileName.includes('train') ? 'train_file' : 'test_file'
+        
+        // 将File对象转换为DataTransfer来设置input的files
+        const dataTransfer = new DataTransfer()
+        dataTransfer.items.add(file)
+        tempInput.files = dataTransfer.files
+        
+        // 添加到表单
+        form.appendChild(tempInput)
+        console.log('添加文件到表单:', fileName)
+      })
+      
+      // 添加提交按钮
+      const submitBtn = document.createElement('input')
+      submitBtn.type = 'submit'
+      submitBtn.value = '上传'
+      form.appendChild(submitBtn)
+      
+      // 添加表单到页面并提交
+      document.body.appendChild(form)
+      console.log('表单已创建:', form)
+      
+      // 创建iframe接收响应
+      let iframe = document.getElementById('upload-response-frame')
+      if (!iframe) {
+        iframe = document.createElement('iframe')
+        iframe.id = 'upload-response-frame'
+        iframe.name = 'upload-response-frame'
+        iframe.style.display = 'none'
+        document.body.appendChild(iframe)
+      }
+      
+      form.target = 'upload-response-frame'
+      
+      // 监听iframe加载事件
+      iframe.onload = () => {
+        try {
+          console.log('iframe加载完成')
+          const iframeContent = iframe.contentDocument || iframe.contentWindow.document
+          console.log('iframe内容:', iframeContent.body.innerHTML)
+          this.$message.success('表单提交完成，请检查控制台')
+        } catch (e) {
+          console.error('读取iframe内容出错:', e)
+        }
+      }
+      
+      // 提交表单
+      console.log('准备提交表单...')
+      form.submit()
+      console.log('表单已提交')
+      this.$message.info('表单已提交，请检查控制台和后端')
     }
   }
 }

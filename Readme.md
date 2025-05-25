@@ -49,6 +49,7 @@ BS_Predict_v4/
 ## 系统架构
 
 ### 后端架构 (Flask)
+
 - **模块化设计**: 每个功能模块独立成服务类
 - **RESTful API**: 标准的REST接口设计
 - **统一响应格式**: 一致的JSON响应结构
@@ -56,6 +57,7 @@ BS_Predict_v4/
 - **文件管理**: 支持文件上传、下载、存储
 
 ### 前端架构 (Vue + Element UI)
+
 - **组件化开发**: 可复用的Vue组件
 - **响应式布局**: 适配不同屏幕尺寸
 - **统一风格**: 基于Element UI的一致UI设计
@@ -67,6 +69,7 @@ BS_Predict_v4/
 ### 1. 机器学习子系统
 
 #### 系统接口 (DataInterface.vue)
+
 - **数据加载**: 支持默认数据和自定义数据上传
 - **数据预览**: 实时数据预览和统计信息
 - **数据预处理**: 缺失值填充、特征标准化、异常值处理
@@ -74,18 +77,21 @@ BS_Predict_v4/
 - **系统状态**: 实时监控数据加载和模型训练状态
 
 #### 机器学习 (MachineLearning.vue)
+
 - **多模型支持**: LR、RF、GBR、XGBR、SVR、ANN等模型
 - **参数配置**: 可视化的模型参数设置
 - **训练过程**: 实时训练进度和结果展示
 - **模型评估**: 详细的性能指标和可视化
 
 #### Stacking集成 (StackingEnsemble.vue)
+
 - **基模型选择**: 灵活的基学习器配置
 - **元模型设置**: 多种元学习器选项
 - **交叉验证**: k折交叉验证支持
 - **集成效果**: 可视化的集成学习效果
 
 #### 自动化机器学习 (AutoML.vue)
+
 - **模型自动筛选**: 自动尝试多种模型
 - **超参数优化**: 网格搜索和随机搜索
 - **性能比较**: 自动模型性能比较报告
@@ -94,12 +100,14 @@ BS_Predict_v4/
 ### 2. 用户交互子系统
 
 #### 可视化分析 (Visualization.vue)
+
 - **数据可视化**: 分布图、相关性矩阵、散点图等
 - **模型可视化**: 预测图、残差图、特征重要性等
 - **交互式图表**: 基于Plotly的动态图表
 - **多种格式**: 支持Plotly和Matplotlib两种图表
 
 #### 报表 (Reports.vue)
+
 - **报表生成**: 自动生成分析报告
 - **多种格式**: 支持HTML、PDF、DOCX格式
 - **自定义内容**: 可配置的报表内容
@@ -108,32 +116,39 @@ BS_Predict_v4/
 ## 安装与运行
 
 ### 环境要求
+
 - Python 3.8+
 - Node.js 14+
 - npm 或 yarn
 
 ### 后端启动
+
 ```bash
 cd flask_backend
 pip install -r requirements.txt
 python app.py
 ```
+
 后端将在 http://localhost:5000 启动
 
 ### 前端启动
+
 ```bash
 cd vue-admin-design
 npm install
 npm run serve
 ```
+
 前端将在 http://localhost:8080 启动
 
 ## API接口文档
 
 ### 系统状态
-- `GET /api/system/status` - 获取系统状态
+
+- `GET /api/health` - 获取系统状态
 
 ### 数据处理
+
 - `POST /api/data/load-default` - 加载默认数据
 - `POST /api/data/upload` - 上传数据文件
 - `GET /api/data/preview` - 获取数据预览
@@ -141,52 +156,62 @@ npm run serve
 - `GET /api/data/download/{type}/{format}` - 下载数据
 
 ### 机器学习
+
 - `GET /api/ml/models` - 获取可用模型
 - `POST /api/ml/train` - 训练模型
 - `POST /api/ml/predict` - 模型预测
 - `POST /api/ml/evaluate` - 模型评估
 
 ### Stacking集成
+
 - `POST /api/stacking/train` - 训练Stacking模型
 
 ### AutoML
+
 - `POST /api/automl/run` - 运行AutoML
 
 ### 可视化
+
 - `POST /api/visualization/data` - 生成数据可视化
 - `POST /api/visualization/model` - 生成模型可视化
 
 ### 报表
+
 - `POST /api/reports/generate` - 生成报表
 - `GET /api/reports/download/{id}/{format}` - 下载报表
 
 ## 主要特性
 
 ### 1. 完整功能迁移
+
 - ✅ 保持原有Streamlit项目的所有功能
 - ✅ 相同的页面布局和用户体验
 - ✅ 完整的数据处理流程
 - ✅ 所有机器学习模型支持
 
 ### 2. 架构优化
+
 - ✅ 前后端分离架构
 - ✅ RESTful API设计
 - ✅ 模块化代码结构
 - ✅ 统一错误处理
 
 ### 3. 用户体验提升
+
 - ✅ 响应式页面设计
 - ✅ 实时状态更新
 - ✅ 友好的错误提示
 - ✅ 流畅的交互体验
 
 ### 4. 可维护性
+
 - ✅ 清晰的代码结构
 - ✅ 详细的注释文档
 - ✅ 标准的代码规范
 - ✅ 便于扩展的架构
 
 ### 5. 数据安全
+
 - ✅ 文件上传验证
 - ✅ 错误信息过滤
 - ✅ 安全的文件存储
@@ -195,6 +220,7 @@ npm run serve
 ## 技术栈
 
 ### 后端
+
 - **Flask**: Python Web框架
 - **pandas**: 数据处理
 - **scikit-learn**: 机器学习
@@ -204,6 +230,7 @@ npm run serve
 - **reportlab**: PDF报表生成
 
 ### 前端
+
 - **Vue.js 2**: JavaScript框架
 - **Element UI**: UI组件库
 - **axios**: HTTP客户端
@@ -213,11 +240,13 @@ npm run serve
 ## 部署建议
 
 ### 开发环境
+
 - 后端: Flask开发服务器
 - 前端: Vue CLI开发服务器
 - 数据库: 文件系统存储
 
 ### 生产环境
+
 - 后端: Gunicorn + Nginx
 - 前端: Nginx静态文件服务
 - 数据库: PostgreSQL/MySQL
