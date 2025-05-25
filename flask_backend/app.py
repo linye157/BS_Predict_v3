@@ -352,11 +352,21 @@ def train_stacking():
 @app.route('/api/automl/run', methods=['POST'])
 def run_automl():
     """Run automated machine learning"""
+    print("======= 收到AutoML请求 =======")
     try:
         params = request.get_json()
+        if params is None:
+            print("无法解析JSON数据")
+            return jsonify({'success': False, 'message': 'Invalid JSON data'}), 400
+            
+        print(f"收到AutoML请求参数: {params}")
+        
         if app_state['train_data'] is None:
+            print("AutoML失败: 没有训练数据")
             return jsonify({'success': False, 'message': 'No training data available'}), 400
             
+        print(f"AutoML训练数据形状: {app_state['train_data'].shape}")
+        
         result = automl_service.run_automl(
             app_state['train_data'],
             app_state.get('test_data'),
@@ -365,12 +375,26 @@ def run_automl():
         
         if result['success']:
             model_id = result['model_id']
+            # 存储完整的模型信息到app_state（包含模型对象）
             app_state['models'][model_id] = result['model']
             app_state['current_model'] = model_id
+            print(f"AutoML训练成功: {model_id}")
+            
+            # 创建JSON可序列化的响应（移除模型对象）
+            json_result = result.copy()
+            if 'model' in json_result:
+                del json_result['model']  # 移除不可序列化的模型对象
+        else:
+            print(f"AutoML训练失败: {result.get('message', '未知错误')}")
+            json_result = result
         
-        return jsonify(result)
+        return jsonify(json_result)
     except Exception as e:
-        return jsonify({'success': False, 'message': str(e)}), 500
+        import traceback
+        error_msg = str(e)
+        print(f"AutoML异常: {error_msg}")
+        print(traceback.format_exc())
+        return jsonify({'success': False, 'message': error_msg}), 500
 
 # Visualization endpoints
 @app.route('/api/visualization/data', methods=['POST'])
@@ -526,6 +550,16 @@ def options_ml_models():
     response.headers.add('Access-Control-Allow-Origin', '*')
     response.headers.add('Access-Control-Allow-Headers', 'Content-Type, Authorization, Accept')
     response.headers.add('Access-Control-Allow-Methods', 'GET, OPTIONS')
+    response.headers.add('Access-Control-Max-Age', '3600')
+    return response
+
+# 特别处理AutoML OPTIONS请求
+@app.route('/api/automl/run', methods=['OPTIONS'])
+def options_automl_run():
+    response = app.make_default_options_response()
+    response.headers.add('Access-Control-Allow-Origin', '*')
+    response.headers.add('Access-Control-Allow-Headers', 'Content-Type, Authorization, Accept')
+    response.headers.add('Access-Control-Allow-Methods', 'POST, OPTIONS')
     response.headers.add('Access-Control-Max-Age', '3600')
     return response
 

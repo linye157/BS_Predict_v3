@@ -14,6 +14,57 @@ warnings.filterwarnings('ignore')
 
 class AutoMLService:
     def __init__(self):
+        # 快速模式配置（参数较少）
+        self.fast_models_config = {
+            'LinearRegression': {
+                'model': LinearRegression,
+                'params': {
+                    'fit_intercept': [True]
+                }
+            },
+            'RandomForest': {
+                'model': RandomForestRegressor,
+                'params': {
+                    'n_estimators': [50],
+                    'max_depth': [10]
+                }
+            },
+            'GradientBoosting': {
+                'model': GradientBoostingRegressor,
+                'params': {
+                    'n_estimators': [50],
+                    'learning_rate': [0.1]
+                }
+            },
+            'XGBoost': {
+                'model': xgb.XGBRegressor,
+                'params': {
+                    'n_estimators': [50],
+                    'learning_rate': [0.1],
+                    'max_depth': [3],
+                    'n_jobs': [1]
+                }
+            },
+            'SVR': {
+                'model': SVR,
+                'params': {
+                    'C': [1],
+                    'gamma': ['scale'],
+                    'kernel': ['rbf']
+                }
+            },
+            'MLP': {
+                'model': MLPRegressor,
+                'params': {
+                    'hidden_layer_sizes': [(50,)],
+                    'activation': ['relu'],
+                    'alpha': [0.001],
+                    'max_iter': [300]
+                }
+            }
+        }
+        
+        # 完整模式配置（参数较多）
         self.models_config = {
             'LinearRegression': {
                 'model': LinearRegression,
@@ -24,33 +75,43 @@ class AutoMLService:
             'RandomForest': {
                 'model': RandomForestRegressor,
                 'params': {
-                    'n_estimators': [50, 100, 200],
-                    'max_depth': [None, 10, 20],
-                    'min_samples_split': [2, 5, 10]
+                    'n_estimators': [50, 100],
+                    'max_depth': [None, 10],
+                    'min_samples_split': [2, 5]
                 }
             },
             'GradientBoosting': {
                 'model': GradientBoostingRegressor,
                 'params': {
-                    'n_estimators': [50, 100, 200],
-                    'learning_rate': [0.01, 0.1, 0.2],
-                    'max_depth': [3, 5, 7]
+                    'n_estimators': [50, 100],
+                    'learning_rate': [0.1, 0.2],
+                    'max_depth': [3, 5]
                 }
             },
             'XGBoost': {
                 'model': xgb.XGBRegressor,
                 'params': {
-                    'n_estimators': [50, 100, 200],
-                    'learning_rate': [0.01, 0.1, 0.2],
-                    'max_depth': [3, 5, 7]
+                    'n_estimators': [50, 100],
+                    'learning_rate': [0.1, 0.2],
+                    'max_depth': [3, 5],
+                    'n_jobs': [1]  # 限制并行度
                 }
             },
             'SVR': {
                 'model': SVR,
                 'params': {
-                    'C': [0.1, 1, 10],
-                    'gamma': ['scale', 'auto'],
-                    'kernel': ['rbf', 'linear']
+                    'C': [1, 10],
+                    'gamma': ['scale'],
+                    'kernel': ['rbf']
+                }
+            },
+            'MLP': {
+                'model': MLPRegressor,
+                'params': {
+                    'hidden_layer_sizes': [(50,), (100,)],
+                    'activation': ['relu'],
+                    'alpha': [0.001],
+                    'max_iter': [300]
                 }
             }
         }
@@ -69,8 +130,18 @@ class AutoMLService:
             search_method = params.get('search_method', 'grid')  # 'grid' or 'random'
             cv_folds = params.get('cv_folds', 5)
             scoring = params.get('scoring', 'neg_mean_squared_error')
-            models_to_try = params.get('models', list(self.models_config.keys()))
+            training_mode = params.get('training_mode', 'fast')  # 'fast' or 'thorough'
             max_iter = params.get('max_iter', 50)  # for RandomizedSearchCV
+            
+            # 选择模型配置
+            if training_mode == 'fast':
+                models_config = self.fast_models_config
+                print(f"使用快速模式训练")
+            else:
+                models_config = self.models_config
+                print(f"使用完整模式训练")
+                
+            models_to_try = params.get('models', list(models_config.keys()))
             
             results = {}
             best_models = {}
@@ -84,11 +155,11 @@ class AutoMLService:
                 print(f"正在为目标 {target_col} 运行AutoML...")
                 
                 for model_name in models_to_try:
-                    if model_name not in self.models_config:
+                    if model_name not in models_config:
                         continue
                     
                     try:
-                        model_config = self.models_config[model_name]
+                        model_config = models_config[model_name]
                         base_model = model_config['model']()
                         param_grid = model_config['params']
                         
@@ -97,11 +168,12 @@ class AutoMLService:
                             search = RandomizedSearchCV(
                                 base_model,
                                 param_grid,
-                                n_iter=max_iter,
+                                n_iter=min(max_iter, 20),  # 限制最大迭代次数
                                 cv=cv_folds,
                                 scoring=scoring,
-                                n_jobs=-1,
-                                random_state=42
+                                n_jobs=1,  # 限制并行度避免资源竞争
+                                random_state=42,
+                                verbose=0
                             )
                         else:
                             search = GridSearchCV(
@@ -109,7 +181,8 @@ class AutoMLService:
                                 param_grid,
                                 cv=cv_folds,
                                 scoring=scoring,
-                                n_jobs=-1
+                                n_jobs=1,  # 限制并行度
+                                verbose=0
                             )
                         
                         # Fit the search
@@ -182,8 +255,8 @@ class AutoMLService:
             # Generate model ID
             model_id = str(uuid.uuid4())
             
-            # Prepare final model info
-            final_model_info = {
+            # Prepare final model info (包含模型对象，用于app_state存储)
+            final_model_info_storage = {
                 'model': best_models if len(target_columns) > 1 else best_models.get(target_columns[0], {}).get('model'),
                 'model_type': 'AutoML',
                 'model_name': 'AutoML最优模型',
@@ -197,16 +270,64 @@ class AutoMLService:
                 },
                 'best_models_per_target': best_models,
                 'training_time': datetime.now().isoformat(),
-                'data_shape': train_data.shape
+                'data_shape': list(train_data.shape)
             }
+            
+            # 准备JSON可序列化的模型信息
+            final_model_info_json = {
+                'model_type': 'AutoML',
+                'model_name': 'AutoML最优模型',
+                'feature_columns': feature_columns,
+                'target_columns': target_columns,
+                'automl_config': {
+                    'search_method': search_method,
+                    'cv_folds': cv_folds,
+                    'models_tried': models_to_try,
+                    'scoring': scoring
+                },
+                'training_time': datetime.now().isoformat(),
+                'data_shape': list(train_data.shape)
+            }
+            
+            # 清理results中的模型对象，只保留可序列化的数据
+            clean_results = {}
+            clean_best_models = {}
+            
+            for target_col, target_data in results.items():
+                clean_target_results = {'models': {}}
+                
+                for model_name, model_result in target_data['models'].items():
+                    if 'model' in model_result:
+                        # 移除模型对象，保留其他信息
+                        clean_model_result = {k: v for k, v in model_result.items() if k != 'model'}
+                        clean_target_results['models'][model_name] = clean_model_result
+                    else:
+                        clean_target_results['models'][model_name] = model_result
+                
+                # 处理best_model信息
+                if 'best_model' in target_data and target_data['best_model']:
+                    best_model_info = target_data['best_model'].copy()
+                    if 'model' in best_model_info:
+                        del best_model_info['model']
+                    clean_target_results['best_model'] = best_model_info
+                
+                clean_results[target_col] = clean_target_results
+                
+                # 清理best_models
+                if target_col in best_models:
+                    clean_best_model = best_models[target_col].copy()
+                    if 'model' in clean_best_model:
+                        del clean_best_model['model']
+                    clean_best_models[target_col] = clean_best_model
             
             return {
                 'success': True,
                 'message': 'AutoML完成',
                 'model_id': model_id,
-                'model': final_model_info,
-                'results': results,
-                'best_models': best_models,
+                'model': final_model_info_storage,  # 这个会在app.py中被移除
+                'model_info': final_model_info_json,
+                'results': clean_results,
+                'best_models': clean_best_models,
                 'feature_columns': feature_columns,
                 'target_columns': target_columns
             }

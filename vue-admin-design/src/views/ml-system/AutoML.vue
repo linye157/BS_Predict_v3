@@ -3,21 +3,47 @@
     <div class="page-header">
       <h2>自动化机器学习</h2>
       <p>模型自动筛选、模型参数自动最优化设置、模型打包制作与输出</p>
+      <div style="margin-top: 10px;">
+        <el-tag 
+          :type="dataColumns.length > 0 ? 'success' : 'warning'"
+          size="small"
+        >
+          数据状态: {{ dataColumns.length > 0 ? `已加载 ${dataColumns.length} 列数据` : '未加载数据' }}
+        </el-tag>
+      </div>
     </div>
 
     <!-- AutoML配置 -->
     <el-card class="section-card">
       <div slot="header" class="section-header">
         <span><i class="el-icon-magic-stick"></i> AutoML配置</span>
+        <el-button 
+          type="text" 
+          @click="refreshData"
+          :loading="loading.refresh"
+          style="float: right; padding: 3px 0"
+        >
+          <i class="el-icon-refresh"></i> 刷新数据
+        </el-button>
       </div>
       
       <el-form :model="automlForm" label-width="150px" ref="automlForm">
+        <!-- 数据状态提示 -->
+        <el-alert
+          v-if="dataColumns.length === 0"
+          title="请先加载数据"
+          description="在进行AutoML之前，请先在数据接口页面上传或加载默认数据"
+          type="warning"
+          :closable="false"
+          style="margin-bottom: 20px;"
+        />
         <el-form-item label="目标列选择" required>
           <el-select 
             v-model="automlForm.target_columns" 
             multiple 
             placeholder="请选择目标列"
             style="width: 100%"
+            :disabled="dataColumns.length === 0"
           >
             <el-option 
               v-for="col in dataColumns" 
@@ -61,13 +87,21 @@
           />
         </el-form-item>
 
+        <el-form-item label="训练模式">
+          <el-radio-group v-model="automlForm.training_mode">
+            <el-radio label="fast">快速模式 (参数较少，训练更快)</el-radio>
+            <el-radio label="thorough">完整模式 (参数较多，训练较慢)</el-radio>
+          </el-radio-group>
+        </el-form-item>
+
         <el-form-item label="模型选择">
-          <el-checkbox-group v-model="automlForm.models">
+          <el-checkbox-group v-model="automlForm.models" :disabled="dataColumns.length === 0">
             <el-checkbox label="LinearRegression">线性回归 (LR)</el-checkbox>
             <el-checkbox label="RandomForest">随机森林 (RF)</el-checkbox>
             <el-checkbox label="GradientBoosting">梯度提升 (GBR)</el-checkbox>
             <el-checkbox label="XGBoost">XGBoost (XGBR)</el-checkbox>
             <el-checkbox label="SVR">支持向量机 (SVR)</el-checkbox>
+            <el-checkbox label="MLP">人工神经网络 (ANN)</el-checkbox>
           </el-checkbox-group>
         </el-form-item>
 
@@ -76,6 +110,7 @@
             type="primary" 
             @click="runAutoML"
             :loading="loading.automl"
+            :disabled="dataColumns.length === 0"
             size="large"
           >
             <i class="el-icon-magic-stick"></i> 运行AutoML
@@ -127,8 +162,8 @@
           <div v-for="(bestModel, target) in automlResult.best_models" :key="target">
             <h4>{{ target }} - 最优模型</h4>
             <el-descriptions border :column="2">
-              <el-descriptions-item label="模型类型">{{ bestModel.model_name }}</el-descriptions-item>
-              <el-descriptions-item label="CV分数">{{ bestModel.score?.toFixed(4) }}</el-descriptions-item>
+              <el-descriptions-item label="模型类型">{{ getModelDisplayName(bestModel.model_name) }}</el-descriptions-item>
+              <el-descriptions-item label="CV分数">{{ Math.abs(bestModel.score || 0).toFixed(4) }}</el-descriptions-item>
               <el-descriptions-item label="最优参数" :span="2">
                 <pre>{{ JSON.stringify(bestModel.params, null, 2) }}</pre>
               </el-descriptions-item>
@@ -182,22 +217,71 @@
         <el-tab-pane label="性能图表" name="charts">
           <div v-for="(targetResults, target) in automlResult.results" :key="target">
             <h4>{{ target }} - 模型性能对比图</h4>
+            
+            <!-- 图表说明 -->
+            <el-alert
+              :title="getChartTitle()"
+              :description="getChartDescription()"
+              type="info"
+              :closable="false"
+              style="margin-bottom: 20px;"
+            />
+            
             <div class="performance-chart">
+              <!-- 使用计算属性过滤成功的模型 -->
               <el-progress 
-                v-for="(modelResult, modelName) in targetResults.models" 
-                :key="modelName"
-                v-if="!modelResult.error"
+                v-for="modelData in getSuccessfulModels(targetResults.models)" 
+                :key="modelData.name"
                 :text-inside="true" 
                 :stroke-width="26" 
-                :percentage="Math.round((modelResult.train_r2 || 0) * 100)"
-                :status="getProgressStatus(modelResult.train_r2)"
+                :percentage="modelData.percentage"
+                :status="modelData.status"
                 style="margin-bottom: 10px;"
               >
                 <template slot-scope="{ percentage }">
-                  {{ getModelDisplayName(modelName) }}: {{ percentage }}%
+                  {{ modelData.displayName }}: {{ percentage }}% ({{ modelData.metricName }} = {{ modelData.primaryValue }})
                 </template>
               </el-progress>
+              
+              <!-- 显示失败的模型 -->
+              <div v-if="getFailedModels(targetResults.models).length > 0" style="margin-top: 20px;">
+                <h5 style="color: #F56C6C;">训练失败的模型:</h5>
+                <el-tag 
+                  v-for="failedModel in getFailedModels(targetResults.models)"
+                  :key="failedModel.name"
+                  type="danger"
+                  style="margin-right: 10px; margin-bottom: 5px;"
+                >
+                  {{ failedModel.displayName }}: {{ failedModel.error }}
+                </el-tag>
+              </div>
             </div>
+            
+            <!-- 性能指标说明 -->
+            <div class="metrics-explanation" style="margin-top: 20px;">
+              <h5>性能指标说明:</h5>
+              <el-row :gutter="20">
+                <el-col :span="8">
+                  <div class="metric-item">
+                    <strong>R² (决定系数)</strong>
+                    <p>衡量模型解释数据变异的比例，范围0-1，越接近1越好</p>
+                  </div>
+                </el-col>
+                <el-col :span="8">
+                  <div class="metric-item">
+                    <strong>CV分数</strong>
+                    <p>交叉验证平均分数，反映模型的泛化能力</p>
+                  </div>
+                </el-col>
+                <el-col :span="8">
+                  <div class="metric-item">
+                    <strong>RMSE</strong>
+                    <p>均方根误差，数值越小表示预测越准确</p>
+                  </div>
+                </el-col>
+              </el-row>
+            </div>
+            
             <div style="margin-bottom: 30px;"></div>
           </div>
         </el-tab-pane>
@@ -205,13 +289,14 @@
         <el-tab-pane label="模型信息" name="info">
           <el-descriptions border :column="2">
             <el-descriptions-item label="模型ID">{{ automlResult.model_id }}</el-descriptions-item>
-            <el-descriptions-item label="模型类型">{{ automlResult.model?.model_name }}</el-descriptions-item>
+            <el-descriptions-item label="模型类型">{{ automlResult.model_info?.model_name || 'AutoML最优模型' }}</el-descriptions-item>
             <el-descriptions-item label="特征数量">{{ automlResult.feature_columns?.length }}</el-descriptions-item>
             <el-descriptions-item label="目标数量">{{ automlResult.target_columns?.length }}</el-descriptions-item>
-            <el-descriptions-item label="搜索方法">{{ automlResult.model?.automl_config?.search_method }}</el-descriptions-item>
-            <el-descriptions-item label="交叉验证">{{ automlResult.model?.automl_config?.cv_folds }}折</el-descriptions-item>
-            <el-descriptions-item label="评估指标">{{ automlResult.model?.automl_config?.scoring }}</el-descriptions-item>
-            <el-descriptions-item label="训练时间">{{ automlResult.model?.training_time }}</el-descriptions-item>
+            <el-descriptions-item label="搜索方法">{{ automlResult.model_info?.automl_config?.search_method }}</el-descriptions-item>
+            <el-descriptions-item label="交叉验证">{{ automlResult.model_info?.automl_config?.cv_folds }}折</el-descriptions-item>
+            <el-descriptions-item label="评估指标">{{ automlResult.model_info?.automl_config?.scoring }}</el-descriptions-item>
+            <el-descriptions-item label="训练时间">{{ automlResult.model_info?.training_time }}</el-descriptions-item>
+            <el-descriptions-item label="数据形状" :span="2">{{ automlResult.model_info?.data_shape?.join(' × ') }}</el-descriptions-item>
           </el-descriptions>
         </el-tab-pane>
       </el-tabs>
@@ -297,7 +382,8 @@ export default {
         cv_folds: 5,
         scoring: 'neg_mean_squared_error',
         max_iter: 50,
-        models: ['LinearRegression', 'RandomForest', 'GradientBoosting', 'XGBoost', 'SVR']
+        training_mode: 'fast',
+        models: ['LinearRegression', 'RandomForest', 'GradientBoosting', 'XGBoost', 'SVR', 'MLP']
       },
       automlResult: null,
       comparisonReport: null,
@@ -306,7 +392,8 @@ export default {
       resultTab: 'best',
       loading: {
         automl: false,
-        comparison: false
+        comparison: false,
+        refresh: false
       }
     }
   },
@@ -314,16 +401,96 @@ export default {
     await this.loadDataInfo()
   },
   methods: {
+    // 获取训练成功的模型数据
+    getSuccessfulModels(models) {
+      if (!models) return []
+      
+      const scoring = this.automlResult?.model_info?.automl_config?.scoring || 'neg_mean_squared_error'
+      
+      return Object.keys(models)
+        .filter(modelName => !models[modelName].error)
+        .map(modelName => {
+          const modelResult = models[modelName]
+          
+          // 根据评估指标选择显示的数据
+          let primaryValue, displayValue, metricName, percentage, sortValue
+          
+          if (scoring === 'r2') {
+            primaryValue = modelResult.train_r2 || 0
+            displayValue = primaryValue.toFixed(4)
+            metricName = 'R²'
+            percentage = Math.round(Math.max(0, Math.min(100, primaryValue * 100)))
+            sortValue = primaryValue
+          } else if (scoring === 'neg_mean_squared_error') {
+            primaryValue = modelResult.cv_score || 0
+            displayValue = primaryValue.toFixed(4)
+            metricName = 'MSE'
+            // MSE越小越好，转换为百分比显示（取倒数并标准化）
+            const maxMSE = 100 // 假设最大MSE为100
+            percentage = Math.round(Math.max(0, Math.min(100, (1 - primaryValue / maxMSE) * 100)))
+            sortValue = -primaryValue // 负值排序，越小越好
+          } else if (scoring === 'neg_mean_absolute_error') {
+            primaryValue = modelResult.cv_score || 0
+            displayValue = primaryValue.toFixed(4)
+            metricName = 'MAE'
+            // MAE越小越好，转换为百分比显示
+            const maxMAE = 50 // 假设最大MAE为50
+            percentage = Math.round(Math.max(0, Math.min(100, (1 - primaryValue / maxMAE) * 100)))
+            sortValue = -primaryValue // 负值排序，越小越好
+          } else {
+            // 默认使用R²
+            primaryValue = modelResult.train_r2 || 0
+            displayValue = primaryValue.toFixed(4)
+            metricName = 'R²'
+            percentage = Math.round(Math.max(0, Math.min(100, primaryValue * 100)))
+            sortValue = primaryValue
+          }
+          
+          return {
+            name: modelName,
+            displayName: this.getModelDisplayName(modelName),
+            percentage: percentage,
+            primaryValue: displayValue,
+            metricName: metricName,
+            status: this.getProgressStatus(primaryValue, scoring),
+            modelResult: modelResult,
+            sortValue: sortValue
+          }
+        })
+        .sort((a, b) => b.sortValue - a.sortValue) // 按性能排序
+    },
+    
+    // 获取训练失败的模型数据
+    getFailedModels(models) {
+      if (!models) return []
+      
+      return Object.keys(models)
+        .filter(modelName => models[modelName].error)
+        .map(modelName => ({
+          name: modelName,
+          displayName: this.getModelDisplayName(modelName),
+          error: models[modelName].error || '训练失败'
+        }))
+    },
     async loadDataInfo() {
       try {
         const response = await getDataPreview()
-        if (response.train_preview) {
+        console.log('AutoML数据预览响应:', response)
+        if (response.success && response.train_preview) {
           this.dataColumns = response.train_preview.columns || []
-          // 默认选择最后3列作为目标列
-          this.automlForm.target_columns = this.dataColumns.slice(-3)
+          // 默认选择最后一列作为目标列
+          if (this.dataColumns.length > 0) {
+            this.automlForm.target_columns = [this.dataColumns[this.dataColumns.length - 1]]
+          }
+          if (this.dataColumns.length === 0) {
+            this.$message.warning('没有可用的数据列，请先上传或加载数据')
+          }
+        } else {
+          this.$message.warning(response.message || '未获取到数据预览信息')
         }
       } catch (error) {
         console.error('加载数据信息失败:', error)
+        this.$message.error('加载数据信息失败: ' + (error.message || '未知错误'))
       }
     },
     
@@ -341,23 +508,37 @@ export default {
       this.automlProgress = 0
       this.automlStatus = '正在初始化AutoML...'
       
-      // 模拟进度更新
+      // 计算总的训练步骤
+      const totalSteps = this.automlForm.target_columns.length * this.automlForm.models.length
+      let currentStep = 0
+      
+      // 更智能的进度更新
       const progressInterval = setInterval(() => {
-        if (this.automlProgress < 90) {
-          this.automlProgress += Math.random() * 10
+        if (this.automlProgress < 95) {
+          // 基于时间的渐进式进度更新
+          const increment = Math.random() * 3 + 1  // 1-4%的增量
+          this.automlProgress += increment
+          // 保留一位小数
+          this.automlProgress = Math.round(Math.min(this.automlProgress, 95) * 10) / 10
           this.updateAutoMLStatus()
         }
-      }, 1000)
+      }, 2000)  // 每2秒更新一次
       
       try {
         const response = await runAutoML(this.automlForm)
-        this.automlResult = response
-        this.automlProgress = 100
-        this.automlStatus = 'AutoML完成！'
-        this.$message.success('AutoML运行完成')
+        if (response.success) {
+          this.automlResult = response
+          this.automlProgress = 100.0
+          this.automlStatus = 'AutoML完成！'
+          this.$message.success('AutoML运行完成')
+        } else {
+          this.automlStatus = 'AutoML运行失败: ' + response.message
+          this.$message.error(response.message || 'AutoML运行失败')
+        }
       } catch (error) {
         console.error('AutoML运行失败:', error)
-        this.automlStatus = 'AutoML运行失败'
+        this.automlStatus = 'AutoML运行失败: ' + (error.message || '未知错误')
+        this.$message.error(error.message || 'AutoML运行失败')
       } finally {
         clearInterval(progressInterval)
         this.loading.automl = false
@@ -371,12 +552,24 @@ export default {
         '正在训练梯度提升模型...',
         '正在训练XGBoost模型...',
         '正在训练支持向量机模型...',
+        '正在训练神经网络模型...',
         '正在进行超参数优化...',
         '正在评估模型性能...',
         '正在生成结果报告...'
       ]
-      const index = Math.floor(this.automlProgress / 12.5)
-      this.automlStatus = statuses[Math.min(index, statuses.length - 1)]
+      const progress = this.automlProgress
+      let index
+      if (progress < 15) index = 0
+      else if (progress < 30) index = 1
+      else if (progress < 45) index = 2
+      else if (progress < 60) index = 3
+      else if (progress < 75) index = 4
+      else if (progress < 85) index = 5
+      else if (progress < 92) index = 6
+      else if (progress < 98) index = 7
+      else index = 8
+      
+      this.automlStatus = statuses[index]
     },
     
     async generateComparison() {
@@ -445,15 +638,70 @@ export default {
         'RandomForest': '随机森林',
         'GradientBoosting': '梯度提升',
         'XGBoost': 'XGBoost',
-        'SVR': '支持向量机'
+        'SVR': '支持向量机',
+        'MLP': '人工神经网络'
       }
       return names[modelKey] || modelKey
     },
     
-    getProgressStatus(r2Score) {
-      if (r2Score >= 0.9) return 'success'
-      if (r2Score >= 0.8) return 'warning'
-      return 'exception'
+    getProgressStatus(value, scoring = 'r2') {
+      if (scoring === 'r2') {
+        if (value >= 0.9) return 'success'
+        if (value >= 0.8) return 'warning'
+        return 'exception'
+      } else if (scoring === 'neg_mean_squared_error') {
+        // MSE越小越好
+        if (value <= 5) return 'success'
+        if (value <= 20) return 'warning'
+        return 'exception'
+      } else if (scoring === 'neg_mean_absolute_error') {
+        // MAE越小越好
+        if (value <= 2) return 'success'
+        if (value <= 10) return 'warning'
+        return 'exception'
+      } else {
+        // 默认按R²处理
+        if (value >= 0.9) return 'success'
+        if (value >= 0.8) return 'warning'
+        return 'exception'
+      }
+    },
+    
+    getChartTitle() {
+      const scoring = this.automlResult?.model_info?.automl_config?.scoring || 'neg_mean_squared_error'
+      const metricNames = {
+        'r2': 'R²决定系数',
+        'neg_mean_squared_error': '均方误差(MSE)',
+        'neg_mean_absolute_error': '平均绝对误差(MAE)'
+      }
+      return `模型性能对比 - ${metricNames[scoring] || '性能指标'}`
+    },
+    
+    getChartDescription() {
+      const scoring = this.automlResult?.model_info?.automl_config?.scoring || 'neg_mean_squared_error'
+      
+      if (scoring === 'r2') {
+        return '以下图表显示各模型的R²决定系数，数值越高表示模型拟合效果越好。绿色表示优秀(≥90%)，橙色表示良好(≥80%)，红色表示需要改进(<80%)。'
+      } else if (scoring === 'neg_mean_squared_error') {
+        return '以下图表显示各模型的均方误差(MSE)，数值越小表示模型预测越准确。绿色表示优秀(≤5)，橙色表示良好(≤20)，红色表示需要改进(>20)。'
+      } else if (scoring === 'neg_mean_absolute_error') {
+        return '以下图表显示各模型的平均绝对误差(MAE)，数值越小表示模型预测越准确。绿色表示优秀(≤2)，橙色表示良好(≤10)，红色表示需要改进(>10)。'
+      } else {
+        return '以下图表显示各模型的性能指标，数值反映模型的预测效果。'
+      }
+    },
+    
+    async refreshData() {
+      this.loading.refresh = true
+      try {
+        await this.loadDataInfo()
+        this.$message.success('数据刷新完成')
+      } catch (error) {
+        console.error('刷新数据失败:', error)
+        this.$message.error('刷新数据失败: ' + (error.message || '未知错误'))
+      } finally {
+        this.loading.refresh = false
+      }
     }
   }
 }
@@ -523,5 +771,37 @@ pre {
   font-size: 12px;
   max-height: 200px;
   overflow-y: auto;
+}
+
+.metrics-explanation {
+  background: #fafbfc;
+  padding: 15px;
+  border-radius: 6px;
+  border: 1px solid #e4e7ed;
+}
+
+.metrics-explanation h5 {
+  margin-bottom: 15px;
+  color: #303133;
+  font-size: 14px;
+}
+
+.metric-item {
+  text-align: center;
+  padding: 10px;
+}
+
+.metric-item strong {
+  display: block;
+  margin-bottom: 8px;
+  color: #409EFF;
+  font-size: 14px;
+}
+
+.metric-item p {
+  margin: 0;
+  color: #606266;
+  font-size: 12px;
+  line-height: 1.4;
 }
 </style> 

@@ -187,10 +187,19 @@ export const trainStackingModel = (params) => {
 
 // AutoML相关API
 export const runAutoML = (params) => {
-  return request({
+  return api({
     url: '/api/automl/run',
     method: 'post',
-    data: params
+    data: params,
+    timeout: 600000  // 10分钟超时
+  })
+  .then(response => response.data)
+  .catch(error => {
+    console.error('AutoML运行失败:', error);
+    if (error.code === 'ECONNABORTED') {
+      return { success: false, message: 'AutoML训练超时，请尝试减少模型数量或使用随机搜索' };
+    }
+    return { success: false, message: error.message || 'AutoML运行失败' };
   })
 }
 
