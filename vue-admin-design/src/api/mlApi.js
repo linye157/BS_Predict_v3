@@ -1,27 +1,39 @@
 import request from '../request'
 import axios from 'axios'
 
+// 创建axios实例，使用相对URL
+const api = axios.create({
+  baseURL: '', // 使用空字符串作为基础URL，依赖Vue代理
+  timeout: 120000, // 2分钟超时
+  headers: {
+    'Content-Type': 'application/json',
+    'Accept': 'application/json'
+  }
+})
+
 // 系统状态
 export const getSystemStatus = () => {
-  return axios({
-    url: 'http://127.0.0.1:5000/api/system/status',
-    method: 'get',
-    timeout: 60000,
-    headers: {
-      'Content-Type': 'application/json'
-    }
+  return api({
+    url: '/api/system/status',
+    method: 'get'
+  })
+  .then(response => response.data)
+  .catch(error => {
+    console.error('获取系统状态失败:', error);
+    return { success: false, message: error.message || '获取系统状态失败' };
   })
 }
 
 // 数据处理相关API
 export const loadDefaultData = () => {
-  return axios({
-    url: 'http://127.0.0.1:5000/api/data/load-default',
-    method: 'post',
-    timeout: 60000,
-    headers: {
-      'Content-Type': 'application/json'
-    }
+  return api({
+    url: '/api/data/load-default',
+    method: 'post'
+  })
+  .then(response => response.data)
+  .catch(error => {
+    console.error('加载默认数据失败:', error);
+    return { success: false, message: error.message || '加载默认数据失败' };
   })
 }
 
@@ -31,94 +43,119 @@ export const uploadData = (formData) => {
     console.log(`${key}: ${value instanceof File ? value.name : value}`);
   }
   
-  return axios({
-    url: 'http://127.0.0.1:5000/api/data/upload',
+  return api({
+    url: '/api/data/upload',
     method: 'post',
     data: formData,
-    timeout: 60000,
     headers: {
       'Content-Type': 'multipart/form-data'
     }
   })
+  .then(response => response.data)
+  .catch(error => {
+    console.error('上传数据失败:', error);
+    return { success: false, message: error.message || '上传数据失败' };
+  })
 }
 
 export const getDataPreview = () => {
-  return axios({
-    url: 'http://127.0.0.1:5000/api/data/preview',
-    method: 'get',
-    timeout: 60000,
-    headers: {
-      'Content-Type': 'application/json'
-    }
+  return api({
+    url: '/api/data/preview',
+    method: 'get'
+  })
+  .then(response => response.data)
+  .catch(error => {
+    console.error('获取数据预览失败:', error);
+    return { success: false, train_preview: { columns: [] } };
   })
 }
 
 export const preprocessData = (params) => {
-  return axios({
-    url: 'http://127.0.0.1:5000/api/data/preprocess',
+  return api({
+    url: '/api/data/preprocess',
     method: 'post',
-    data: params,
-    timeout: 60000,
-    headers: {
-      'Content-Type': 'application/json'
-    }
+    data: params
+  })
+  .then(response => response.data)
+  .catch(error => {
+    console.error('数据预处理失败:', error);
+    return { success: false, message: error.message || '预处理失败' };
   })
 }
 
 export const downloadData = (dataType, fileFormat) => {
-  return axios({
-    url: `http://127.0.0.1:5000/api/data/download/${dataType}/${fileFormat}`,
+  return api({
+    url: `/api/data/download/${dataType}/${fileFormat}`,
     method: 'get',
-    responseType: 'blob',
-    timeout: 60000
+    responseType: 'blob'
   })
 }
 
 // 机器学习相关API
 export const getAvailableModels = () => {
-  return axios({
-    url: 'http://127.0.0.1:5000/api/ml/models',
-    method: 'get',
-    timeout: 60000,
-    headers: {
-      'Content-Type': 'application/json'
-    }
+  return api({
+    url: '/api/ml/models',
+    method: 'get'
+  })
+  .then(response => response.data)
+  .catch(error => {
+    console.error('获取可用模型失败:', error);
+    return { success: false, models: [] };
   })
 }
 
 export const trainModel = (params) => {
-  return axios({
-    url: 'http://127.0.0.1:5000/api/ml/train',
+  console.log('发送训练请求，参数:', params);
+  return api({
+    url: '/api/ml/train',
     method: 'post',
-    data: params,
-    timeout: 60000,
-    headers: {
-      'Content-Type': 'application/json'
+    data: params
+  })
+  .then(response => {
+    console.log('训练响应成功:', response.status);
+    return response.data;
+  })
+  .catch(error => {
+    console.error('模型训练失败:', error);
+    if (error.response) {
+      // 服务器返回了错误状态码
+      console.error('错误状态:', error.response.status);
+      console.error('错误数据:', error.response.data);
+      return { success: false, message: error.response.data.message || '服务器返回错误' };
+    } else if (error.request) {
+      // 请求已发出，但没有收到响应
+      console.error('未收到响应:', error.request);
+      return { success: false, message: '服务器未响应，请检查后端服务是否正常运行' };
+    } else {
+      // 请求配置出错
+      return { success: false, message: error.message || '训练失败，请检查参数和数据' };
     }
   })
 }
 
 export const predictModel = (params) => {
-  return axios({
-    url: 'http://127.0.0.1:5000/api/ml/predict',
+  return api({
+    url: '/api/ml/predict',
     method: 'post',
-    data: params,
-    timeout: 60000,
-    headers: {
-      'Content-Type': 'application/json'
-    }
+    data: params
+  })
+  .then(response => response.data)
+  .catch(error => {
+    console.error('模型预测失败:', error);
+    return { success: false, message: error.message || '预测失败' };
   })
 }
 
 export const evaluateModel = (params) => {
-  return axios({
-    url: 'http://127.0.0.1:5000/api/ml/evaluate',
+  return api({
+    url: '/api/ml/evaluate',
     method: 'post',
-    data: params,
-    timeout: 60000,
-    headers: {
-      'Content-Type': 'application/json'
-    }
+    data: params
+  })
+  .then(response => response.data)
+  .catch(error => {
+    console.error('模型评估失败:', error);
+    return { success: false, message: error.message || '评估失败' };
   })
 }
 

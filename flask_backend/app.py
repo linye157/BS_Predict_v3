@@ -19,13 +19,14 @@ from modules.report import ReportService
 
 app = Flask(__name__)
 # 增强CORS配置，允许所有头信息和方法
-CORS(app, resources={r"/api/*": {"origins": "*", "allow_headers": "*", "methods": "*"}})
+CORS(app, resources={r"/api/*": {"origins": "*", "allow_headers": "*", "methods": "*", "expose_headers": "*", "supports_credentials": True}})
 
 # Configuration
 app.config['UPLOAD_FOLDER'] = 'uploads'
 app.config['DATA_FOLDER'] = 'data'
 app.config['MODELS_FOLDER'] = 'models'
 app.config['REPORTS_FOLDER'] = 'reports'
+app.config['MAX_CONTENT_LENGTH'] = 100 * 1024 * 1024  # 100MB max upload
 
 # Create necessary directories
 for folder in [app.config['UPLOAD_FOLDER'], app.config['DATA_FOLDER'], 
@@ -187,14 +188,43 @@ def get_available_models():
     """Get list of available ML models"""
     return jsonify(ml_service.get_available_models())
 
+@app.errorhandler(413)
+def request_entity_too_large(error):
+    """Handle large payload errors"""
+    print("请求数据过大")
+    return jsonify({
+        'success': False,
+        'message': 'Request entity too large, max allowed size is 100MB'
+    }), 413
+
 @app.route('/api/ml/train', methods=['POST'])
 def train_model():
     """Train a machine learning model"""
+    print("======= 收到训练请求 =======")
     try:
         params = request.get_json()
+        if params is None:
+            print("无法解析JSON数据")
+            return jsonify({'success': False, 'message': 'Invalid JSON data'}), 400
+            
+        print(f"收到训练请求参数: {params}")
+        
         if app_state['train_data'] is None:
+            print("训练失败: 没有训练数据")
             return jsonify({'success': False, 'message': 'No training data available'}), 400
             
+        if 'model_type' not in params:
+            print("训练失败: 未指定模型类型")
+            return jsonify({'success': False, 'message': 'Model type not specified'}), 400
+            
+        if 'target_columns' not in params or not params['target_columns']:
+            print("训练失败: 未指定目标列")
+            return jsonify({'success': False, 'message': 'Target columns not specified'}), 400
+        
+        print(f"训练数据形状: {app_state['train_data'].shape}")
+        print(f"选择的模型: {params.get('model_type')}")
+        print(f"目标列: {params.get('target_columns')}")
+        
         result = ml_service.train_model(
             app_state['train_data'],
             params
@@ -202,6 +232,7 @@ def train_model():
         
         if result['success']:
             model_id = result['model_id']
+            # 存储完整的模型信息到app_state（包含模型对象）
             app_state['models'][model_id] = result['model']
             app_state['current_model'] = model_id
             app_state['training_history'].append({
@@ -210,10 +241,23 @@ def train_model():
                 'model_id': model_id,
                 'metrics': result.get('metrics', {})
             })
+            print(f"模型训练成功: {model_id}")
+            
+            # 创建JSON可序列化的响应（移除模型对象）
+            json_result = result.copy()
+            if 'model' in json_result:
+                del json_result['model']  # 移除不可序列化的模型对象
+        else:
+            print(f"模型训练失败: {result.get('message', '未知错误')}")
+            json_result = result
         
-        return jsonify(result)
+        return jsonify(json_result)
     except Exception as e:
-        return jsonify({'success': False, 'message': str(e)}), 500
+        import traceback
+        error_msg = str(e)
+        print(f"模型训练异常: {error_msg}")
+        print(traceback.format_exc())
+        return jsonify({'success': False, 'message': error_msg}), 500
 
 @app.route('/api/ml/predict', methods=['POST'])
 def predict():
@@ -421,6 +465,46 @@ def options_preview():
     response.headers.add('Access-Control-Allow-Origin', '*')
     response.headers.add('Access-Control-Allow-Headers', 'Content-Type')
     response.headers.add('Access-Control-Allow-Methods', 'GET')
+    return response
+
+# 特别处理模型训练OPTIONS请求
+@app.route('/api/ml/train', methods=['OPTIONS'])
+def options_ml_train():
+    response = app.make_default_options_response()
+    response.headers.add('Access-Control-Allow-Origin', '*')
+    response.headers.add('Access-Control-Allow-Headers', 'Content-Type, Authorization, Accept')
+    response.headers.add('Access-Control-Allow-Methods', 'POST, OPTIONS')
+    response.headers.add('Access-Control-Max-Age', '3600')
+    return response
+
+# 特别处理模型预测OPTIONS请求
+@app.route('/api/ml/predict', methods=['OPTIONS'])
+def options_ml_predict():
+    response = app.make_default_options_response()
+    response.headers.add('Access-Control-Allow-Origin', '*')
+    response.headers.add('Access-Control-Allow-Headers', 'Content-Type, Authorization, Accept')
+    response.headers.add('Access-Control-Allow-Methods', 'POST, OPTIONS')
+    response.headers.add('Access-Control-Max-Age', '3600')
+    return response
+
+# 特别处理模型评估OPTIONS请求
+@app.route('/api/ml/evaluate', methods=['OPTIONS'])
+def options_ml_evaluate():
+    response = app.make_default_options_response()
+    response.headers.add('Access-Control-Allow-Origin', '*')
+    response.headers.add('Access-Control-Allow-Headers', 'Content-Type, Authorization, Accept')
+    response.headers.add('Access-Control-Allow-Methods', 'POST, OPTIONS')
+    response.headers.add('Access-Control-Max-Age', '3600')
+    return response
+
+# 特别处理模型列表OPTIONS请求
+@app.route('/api/ml/models', methods=['OPTIONS'])
+def options_ml_models():
+    response = app.make_default_options_response()
+    response.headers.add('Access-Control-Allow-Origin', '*')
+    response.headers.add('Access-Control-Allow-Headers', 'Content-Type, Authorization, Accept')
+    response.headers.add('Access-Control-Allow-Methods', 'GET, OPTIONS')
+    response.headers.add('Access-Control-Max-Age', '3600')
     return response
 
 # 通用OPTIONS处理，捕获所有API路径的预检请求

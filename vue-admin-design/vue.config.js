@@ -26,7 +26,38 @@ module.exports = {
         target: 'http://127.0.0.1:5000', // 使用127.0.0.1而不是localhost
         changeOrigin: true,
         secure: false,
-        pathRewrite: null // 不进行路径重写
+        ws: true, // 支持websocket
+        timeout: 300000, // 延长超时时间到5分钟
+        pathRewrite: null, // 不进行路径重写
+        onProxyReq: function(proxyReq, req, res) {
+          // 打印请求详情以便调试
+          console.log('>>>>>>>>>> 代理请求:', req.method, req.url);
+          if (req.method === 'POST') {
+            // 确保内容类型设置正确
+            proxyReq.setHeader('Content-Type', 'application/json');
+            proxyReq.setHeader('Accept', 'application/json');
+          }
+        },
+        onProxyRes: function(proxyRes, req, res) {
+          // 打印响应状态以便调试
+          console.log('<<<<<<<<<< 代理响应:', proxyRes.statusCode, req.url);
+          
+          // 确保跨域头被正确设置
+          proxyRes.headers['Access-Control-Allow-Origin'] = '*';
+          proxyRes.headers['Access-Control-Allow-Headers'] = 'Content-Type, Authorization, Accept';
+          proxyRes.headers['Access-Control-Allow-Methods'] = 'GET, POST, PUT, DELETE, OPTIONS';
+        },
+        onError: function(err, req, res) {
+          // 代理错误处理
+          console.error('代理错误:', err);
+          res.writeHead(500, {
+            'Content-Type': 'application/json'
+          });
+          res.end(JSON.stringify({
+            success: false,
+            message: '代理服务器错误: ' + err.message
+          }));
+        }
       }
     }
   }

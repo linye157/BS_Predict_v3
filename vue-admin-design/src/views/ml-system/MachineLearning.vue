@@ -58,7 +58,32 @@
         <el-card v-if="trainForm.model_type" style="margin-top: 20px;">
           <div slot="header">模型参数配置</div>
           <div v-if="trainForm.model_type === 'LinearRegression'">
-            <el-checkbox v-model="trainForm.model_params.fit_intercept">拟合截距</el-checkbox>
+            <el-row :gutter="20">
+              <el-col :span="6">
+                <el-form-item label="拟合截距">
+                  <el-checkbox v-model="trainForm.model_params.fit_intercept">fit_intercept</el-checkbox>
+                </el-form-item>
+              </el-col>
+              <el-col :span="6">
+                <el-form-item label="复制输入">
+                  <el-checkbox v-model="trainForm.model_params.copy_X">copy_X</el-checkbox>
+                </el-form-item>
+              </el-col>
+              <el-col :span="6">
+                <el-form-item label="并行作业">
+                  <el-select v-model="trainForm.model_params.n_jobs" placeholder="选择并行作业数">
+                    <el-option label="自动" :value="null" />
+                    <el-option label="全部CPU" :value="-1" />
+                    <el-option label="单线程" :value="1" />
+                  </el-select>
+                </el-form-item>
+              </el-col>
+              <el-col :span="6">
+                <el-form-item label="强制正系数">
+                  <el-checkbox v-model="trainForm.model_params.positive">positive</el-checkbox>
+                </el-form-item>
+              </el-col>
+            </el-row>
           </div>
           
           <div v-else-if="trainForm.model_type === 'RandomForest'">
@@ -207,6 +232,13 @@
           >
             <i class="el-icon-data-analysis"></i> 模型评估
           </el-button>
+          <el-button 
+            type="warning" 
+            @click="debugConnection"
+            size="small"
+          >
+            <i class="el-icon-s-tools"></i> 调试连接
+          </el-button>
         </el-form-item>
       </el-form>
     </el-card>
@@ -228,9 +260,11 @@
         <el-tab-pane label="模型信息" name="info">
           <el-descriptions border :column="2">
             <el-descriptions-item label="模型ID">{{ trainResult.model_id }}</el-descriptions-item>
-            <el-descriptions-item label="模型类型">{{ trainResult.model?.model_name }}</el-descriptions-item>
+            <el-descriptions-item label="模型类型">{{ trainResult.model_info?.model_name }}</el-descriptions-item>
             <el-descriptions-item label="特征数量">{{ trainResult.feature_columns?.length }}</el-descriptions-item>
             <el-descriptions-item label="目标数量">{{ trainResult.target_columns?.length }}</el-descriptions-item>
+            <el-descriptions-item label="训练时间">{{ trainResult.model_info?.training_time }}</el-descriptions-item>
+            <el-descriptions-item label="数据形状">{{ trainResult.model_info?.data_shape?.join(' × ') }}</el-descriptions-item>
             <el-descriptions-item label="最优参数" :span="2">
               <pre>{{ JSON.stringify(trainResult.best_params, null, 2) }}</pre>
             </el-descriptions-item>
@@ -238,68 +272,165 @@
         </el-tab-pane>
         
         <el-tab-pane label="性能指标" name="metrics">
-          <div v-for="(metrics, target) in trainResult.metrics?.train" :key="target">
-            <h4>{{ target }} - 训练集指标</h4>
-            <el-row :gutter="20">
-              <el-col :span="6">
-                <el-statistic title="MSE" :value="metrics.mse" :precision="4" />
-              </el-col>
-              <el-col :span="6">
-                <el-statistic title="RMSE" :value="metrics.rmse" :precision="4" />
-              </el-col>
-              <el-col :span="6">
-                <el-statistic title="MAE" :value="metrics.mae" :precision="4" />
-              </el-col>
-              <el-col :span="6">
-                <el-statistic title="R²" :value="metrics.r2" :precision="4" />
-              </el-col>
-            </el-row>
+          <div v-if="!trainResult.metrics || (!trainResult.metrics.train && !trainResult.metrics.validation)" 
+               style="text-align: center; padding: 40px; color: #909399;">
+            <i class="el-icon-warning" style="font-size: 48px; margin-bottom: 16px;"></i>
+            <p>暂无性能指标数据</p>
           </div>
           
-          <div v-for="(metrics, target) in trainResult.metrics?.validation" :key="target" style="margin-top: 20px;">
-            <h4>{{ target }} - 验证集指标</h4>
-            <el-row :gutter="20">
-              <el-col :span="6">
-                <el-statistic title="MSE" :value="metrics.mse" :precision="4" />
-              </el-col>
-              <el-col :span="6">
-                <el-statistic title="RMSE" :value="metrics.rmse" :precision="4" />
-              </el-col>
-              <el-col :span="6">
-                <el-statistic title="MAE" :value="metrics.mae" :precision="4" />
-              </el-col>
-              <el-col :span="6">
-                <el-statistic title="R²" :value="metrics.r2" :precision="4" />
-              </el-col>
-            </el-row>
+          <div v-else>
+            <!-- 训练集指标 -->
+            <div v-if="trainResult.metrics.train">
+              <h3 style="color: #409EFF; margin-bottom: 20px;">
+                <i class="el-icon-data-line"></i> 训练集指标
+              </h3>
+              <div v-for="(metrics, target) in trainResult.metrics.train" :key="'train-' + target" style="margin-bottom: 30px;">
+                <h4 style="color: #606266; margin-bottom: 15px;">{{ target }}</h4>
+                <el-row :gutter="20">
+                  <el-col :span="6">
+                    <el-statistic 
+                      title="MSE (均方误差)" 
+                      :value="metrics.mse || 0" 
+                      :precision="6" 
+                      suffix=""
+                    />
+                  </el-col>
+                  <el-col :span="6">
+                    <el-statistic 
+                      title="RMSE (均方根误差)" 
+                      :value="metrics.rmse || 0" 
+                      :precision="6" 
+                      suffix=""
+                    />
+                  </el-col>
+                  <el-col :span="6">
+                    <el-statistic 
+                      title="MAE (平均绝对误差)" 
+                      :value="metrics.mae || 0" 
+                      :precision="6" 
+                      suffix=""
+                    />
+                  </el-col>
+                  <el-col :span="6">
+                    <el-statistic 
+                      title="R² (决定系数)" 
+                      :value="metrics.r2 || 0" 
+                      :precision="6" 
+                      suffix=""
+                    />
+                  </el-col>
+                </el-row>
+              </div>
+            </div>
+            
+            <!-- 验证集指标 -->
+            <div v-if="trainResult.metrics.validation" style="margin-top: 30px;">
+              <h3 style="color: #67C23A; margin-bottom: 20px;">
+                <i class="el-icon-data-analysis"></i> 验证集指标
+              </h3>
+              <div v-for="(metrics, target) in trainResult.metrics.validation" :key="'val-' + target" style="margin-bottom: 30px;">
+                <h4 style="color: #606266; margin-bottom: 15px;">{{ target }}</h4>
+                <el-row :gutter="20">
+                  <el-col :span="6">
+                    <el-statistic 
+                      title="MSE (均方误差)" 
+                      :value="metrics.mse || 0" 
+                      :precision="6" 
+                      suffix=""
+                    />
+                  </el-col>
+                  <el-col :span="6">
+                    <el-statistic 
+                      title="RMSE (均方根误差)" 
+                      :value="metrics.rmse || 0" 
+                      :precision="6" 
+                      suffix=""
+                    />
+                  </el-col>
+                  <el-col :span="6">
+                    <el-statistic 
+                      title="MAE (平均绝对误差)" 
+                      :value="metrics.mae || 0" 
+                      :precision="6" 
+                      suffix=""
+                    />
+                  </el-col>
+                  <el-col :span="6">
+                    <el-statistic 
+                      title="R² (决定系数)" 
+                      :value="metrics.r2 || 0" 
+                      :precision="6" 
+                      suffix=""
+                    />
+                  </el-col>
+                </el-row>
+              </div>
+            </div>
+            
+            <!-- 交叉验证指标 -->
+            <div v-if="trainResult.metrics.cross_validation" style="margin-top: 30px;">
+              <h3 style="color: #E6A23C; margin-bottom: 20px;">
+                <i class="el-icon-s-data"></i> 交叉验证指标 (CV MSE)
+              </h3>
+              <el-row :gutter="20">
+                <el-col :span="6" v-for="(score, target) in trainResult.metrics.cross_validation" :key="'cv-' + target">
+                  <el-statistic 
+                    :title="target + ' CV MSE'" 
+                    :value="score || 0" 
+                    :precision="6" 
+                    suffix=""
+                  />
+                </el-col>
+              </el-row>
+            </div>
           </div>
         </el-tab-pane>
       </el-tabs>
     </el-card>
 
     <!-- 预测结果展示 -->
-    <el-card v-if="predictResult" class="section-card">
+    <el-card v-if="predictResult && predictResult.success" class="section-card">
       <div slot="header" class="section-header">
         <span><i class="el-icon-view"></i> 预测结果</span>
+        <span style="float: right; font-size: 12px; color: #909399;">
+          共 {{ predictResult.prediction_count || 0 }} 条预测结果
+        </span>
       </div>
       
-      <el-table 
-        :data="predictResult.predictions?.slice(0, 100)" 
-        border 
-        stripe 
-        max-height="400"
-      >
-        <el-table-column 
-          v-for="col in Object.keys(predictResult.predictions?.[0] || {})" 
-          :key="col"
-          :prop="col" 
-          :label="col"
-          width="150"
-        />
-      </el-table>
+      <div v-if="!predictResult.predictions || predictResult.predictions.length === 0" 
+           style="text-align: center; padding: 40px; color: #909399;">
+        <i class="el-icon-info" style="font-size: 48px; margin-bottom: 16px;"></i>
+        <p>暂无预测数据</p>
+      </div>
       
-      <div style="text-align: center; margin-top: 10px;" v-if="predictResult.predictions?.length > 100">
-        <el-tag>显示前100行，共{{ predictResult.predictions.length }}行</el-tag>
+      <div v-else>
+        <el-table 
+          :data="predictResult.predictions.slice(0, 100)" 
+          border 
+          stripe 
+          max-height="400"
+          style="width: 100%"
+        >
+          <el-table-column 
+            v-for="col in (predictResult.columns || Object.keys(predictResult.predictions[0] || {}))" 
+            :key="col"
+            :prop="col" 
+            :label="col"
+            :width="col.includes('predicted') ? 150 : 120"
+            :show-overflow-tooltip="true"
+          >
+            <template slot-scope="scope">
+              <span v-if="typeof scope.row[col] === 'number'">
+                {{ scope.row[col].toFixed(4) }}
+              </span>
+              <span v-else>{{ scope.row[col] }}</span>
+            </template>
+          </el-table-column>
+        </el-table>
+        
+        <div style="text-align: center; margin-top: 10px;" v-if="predictResult.predictions.length > 100">
+          <el-tag type="info">显示前100行，共{{ predictResult.predictions.length }}行</el-tag>
+        </div>
       </div>
     </el-card>
 
@@ -336,8 +467,10 @@ import {
   trainModel, 
   predictModel, 
   evaluateModel,
-  getDataPreview 
+  getDataPreview,
+  getSystemStatus
 } from '@/api/mlApi'
+import axios from 'axios'
 
 export default {
   name: 'MachineLearning',
@@ -373,22 +506,40 @@ export default {
     async loadAvailableModels() {
       try {
         const response = await getAvailableModels()
-        this.availableModels = response.models || []
+        console.log('Available models response:', response)
+        if (response.success) {
+          this.availableModels = response.models || []
+          if (this.availableModels.length === 0) {
+            this.$message.warning('没有可用的模型类型')
+          }
+        } else {
+          this.$message.error(response.message || '加载可用模型失败')
+        }
       } catch (error) {
         console.error('加载可用模型失败:', error)
+        this.$message.error('加载可用模型失败: ' + (error.message || '未知错误'))
       }
     },
     
     async loadDataInfo() {
       try {
         const response = await getDataPreview()
-        if (response.train_preview) {
+        console.log('Data preview response:', response)
+        if (response.success && response.train_preview) {
           this.dataColumns = response.train_preview.columns || []
-          // 默认选择最后3列作为目标列
-          this.trainForm.target_columns = this.dataColumns.slice(-3)
+          // 默认选择最后一列作为目标列
+          if (this.dataColumns.length > 0) {
+            this.trainForm.target_columns = [this.dataColumns[this.dataColumns.length - 1]]
+          }
+          if (this.dataColumns.length === 0) {
+            this.$message.warning('没有可用的数据列，请先上传或加载数据')
+          }
+        } else {
+          this.$message.warning(response.message || '未获取到数据预览信息')
         }
       } catch (error) {
         console.error('加载数据信息失败:', error)
+        this.$message.error('加载数据信息失败: ' + (error.message || '未知错误'))
       }
     },
     
@@ -400,7 +551,10 @@ export default {
     getDefaultParams(modelType) {
       const defaults = {
         'LinearRegression': {
-          fit_intercept: true
+          fit_intercept: true,
+          copy_X: true,
+          n_jobs: null,
+          positive: false
         },
         'RandomForest': {
           n_estimators: 100,
@@ -450,12 +604,20 @@ export default {
           params.model_params.hidden_layer_sizes = sizes.length === 1 ? sizes[0] : sizes
         }
         
+        console.log('开始训练模型，参数:', params)
         const response = await trainModel(params)
-        this.trainResult = response
-        this.currentModel = response.model_id
-        this.$message.success('模型训练完成')
+        console.log('训练模型响应:', response)
+        
+        if (response.success) {
+          this.trainResult = response
+          this.currentModel = response.model_id
+          this.$message.success('模型训练完成')
+        } else {
+          this.$message.error(response.message || '模型训练失败')
+        }
       } catch (error) {
         console.error('模型训练失败:', error)
+        this.$message.error('模型训练失败: ' + (error.message || '未知错误'))
       } finally {
         this.loading.train = false
       }
@@ -468,10 +630,17 @@ export default {
           model_id: this.currentModel,
           include_features: true
         })
-        this.predictResult = response
-        this.$message.success('预测完成')
+        console.log('预测响应:', response)
+        
+        if (response.success) {
+          this.predictResult = response
+          this.$message.success('预测完成')
+        } else {
+          this.$message.error(response.message || '模型预测失败')
+        }
       } catch (error) {
         console.error('模型预测失败:', error)
+        this.$message.error('模型预测失败: ' + (error.message || '未知错误'))
       } finally {
         this.loading.predict = false
       }
@@ -483,12 +652,90 @@ export default {
         const response = await evaluateModel({
           model_id: this.currentModel
         })
-        this.evaluateResult = response
-        this.$message.success('模型评估完成')
+        console.log('评估响应:', response)
+        
+        if (response.success) {
+          this.evaluateResult = response
+          this.$message.success('模型评估完成')
+        } else {
+          this.$message.error(response.message || '模型评估失败')
+        }
       } catch (error) {
         console.error('模型评估失败:', error)
+        this.$message.error('模型评估失败: ' + (error.message || '未知错误'))
       } finally {
         this.loading.evaluate = false
+      }
+    },
+    
+    async debugConnection() {
+      try {
+        // 测试系统状态
+        console.log('测试连接 - 获取系统状态')
+        const statusResponse = await getSystemStatus()
+        console.log('系统状态响应:', statusResponse)
+        
+        // 测试简单的GET请求（通过代理）
+        console.log('测试连接 - 简单GET请求')
+        const testResponse = await fetch('/api/health')
+        const healthData = await testResponse.json()
+        console.log('健康检查响应:', healthData)
+        
+        // 尝试发送极简训练请求（通过代理）
+        console.log('测试连接 - 极简训练请求')
+        const testParams = {
+          model_type: 'LinearRegression',
+          target_columns: this.trainForm.target_columns.length > 0 ? this.trainForm.target_columns : ['y'],
+          test_size: 0.2,
+          random_state: 42,
+          model_params: { 
+            fit_intercept: true,
+            copy_X: true,
+            n_jobs: null,
+            positive: false
+          }
+        }
+        
+        try {
+          console.log('发送极简请求:', testParams)
+          const directResponse = await fetch('/api/ml/train', {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              'Accept': 'application/json'
+            },
+            body: JSON.stringify(testParams)
+          })
+          
+          if (!directResponse.ok) {
+            throw new Error(`HTTP ${directResponse.status}: ${directResponse.statusText}`)
+          }
+          
+          const responseData = await directResponse.json()
+          console.log('极简训练响应:', responseData)
+          
+          if (responseData.success) {
+            this.$message.success('连接测试成功！模型训练正常')
+          } else {
+            this.$message.warning('连接成功，但训练失败: ' + responseData.message)
+          }
+        } catch (trainError) {
+          console.error('极简训练请求失败:', trainError)
+          
+          let errorMsg = '训练请求失败: ';
+          if (trainError.response) {
+            errorMsg += `服务器返回 ${trainError.response.status}: ${JSON.stringify(trainError.response.data)}`;
+          } else if (trainError.request) {
+            errorMsg += '服务器未响应，可能网络问题或后端服务异常';
+          } else {
+            errorMsg += trainError.message || '未知错误';
+          }
+          
+          this.$message.error(errorMsg)
+        }
+      } catch (error) {
+        console.error('连接测试失败:', error)
+        this.$message.error('连接测试失败: ' + (error.message || '未知错误'))
       }
     }
   }

@@ -21,7 +21,9 @@ class MachineLearningService:
                 'class': LinearRegression,
                 'params': {
                     'fit_intercept': [True, False],
-                    'normalize': [True, False]
+                    'copy_X': [True, False],
+                    'n_jobs': [None, -1],
+                    'positive': [False, True]
                 }
             },
             'RandomForest': {
@@ -114,6 +116,10 @@ class MachineLearningService:
             model_info = self.models[model_type]
             model_params = params.get('model_params', {})
             
+            # 验证并清理模型参数
+            validated_params = self._validate_model_params(model_type, model_params)
+            print(f"验证后的模型参数: {validated_params}")
+            
             # Handle different target scenarios
             if len(target_columns) == 1:
                 # Single target
@@ -122,7 +128,7 @@ class MachineLearningService:
                 
                 if params.get('use_grid_search', False):
                     # Grid search for hyperparameter tuning
-                    grid_params = self._get_grid_search_params(model_type, model_params)
+                    grid_params = self._get_grid_search_params(model_type, validated_params)
                     model = GridSearchCV(
                         model_info['class'](),
                         grid_params,
@@ -135,18 +141,18 @@ class MachineLearningService:
                     best_params = model.best_params_
                 else:
                     # Direct training with provided params
-                    model = model_info['class'](**model_params)
+                    model = model_info['class'](**validated_params)
                     model.fit(X_train, y_train_single)
                     best_model = model
-                    best_params = model_params
+                    best_params = validated_params
                 
                 # Predictions
                 y_train_pred = best_model.predict(X_train)
                 y_val_pred = best_model.predict(X_val)
                 
-                # Metrics
-                train_metrics = self._calculate_metrics(y_train_single, y_train_pred)
-                val_metrics = self._calculate_metrics(y_val_single, y_val_pred)
+                # Metrics - 确保格式一致
+                train_metrics = {target_columns[0]: self._calculate_metrics(y_train_single, y_train_pred)}
+                val_metrics = {target_columns[0]: self._calculate_metrics(y_val_single, y_val_pred)}
                 
             else:
                 # Multiple targets - train separate models for each target
@@ -159,7 +165,7 @@ class MachineLearningService:
                     y_val_single = y_val.iloc[:, i]
                     
                     if params.get('use_grid_search', False):
-                        grid_params = self._get_grid_search_params(model_type, model_params)
+                        grid_params = self._get_grid_search_params(model_type, validated_params)
                         model = GridSearchCV(
                             model_info['class'](),
                             grid_params,
@@ -170,7 +176,7 @@ class MachineLearningService:
                         model.fit(X_train, y_train_single)
                         models[target_col] = model.best_estimator_
                     else:
-                        model = model_info['class'](**model_params)
+                        model = model_info['class'](**validated_params)
                         model.fit(X_train, y_train_single)
                         models[target_col] = model
                     
@@ -183,7 +189,7 @@ class MachineLearningService:
                     val_metrics[target_col] = self._calculate_metrics(y_val_single, y_val_pred)
                 
                 best_model = models
-                best_params = model_params
+                best_params = validated_params
             
             # Cross-validation score
             cv_scores = []
@@ -201,7 +207,7 @@ class MachineLearningService:
             # Generate unique model ID
             model_id = str(uuid.uuid4())
             
-            # Prepare model info for storage
+            # Prepare model info for storage (不包含在JSON响应中)
             model_info_storage = {
                 'model': best_model,
                 'model_type': model_type,
@@ -213,11 +219,21 @@ class MachineLearningService:
                 'data_shape': train_data.shape
             }
             
+            # 准备JSON可序列化的响应结果
             result = {
                 'success': True,
                 'message': f'{model_info["name"]} 训练完成',
                 'model_id': model_id,
-                'model': model_info_storage,
+                'model': model_info_storage,  # 这个会在app.py中被移除
+                'model_info': {
+                    'model_type': model_type,
+                    'model_name': model_info['name'],
+                    'feature_columns': feature_columns,
+                    'target_columns': target_columns,
+                    'params': best_params,
+                    'training_time': datetime.now().isoformat(),
+                    'data_shape': list(train_data.shape)
+                },
                 'metrics': {
                     'train': train_metrics,
                     'validation': val_metrics,
@@ -268,12 +284,14 @@ class MachineLearningService:
             else:
                 result_df = predictions_df
             
+            # 确保返回可序列化的数据
             return {
                 'success': True,
                 'message': '预测完成',
-                'predictions': result_df.to_dict('records'),
-                'predictions_df': predictions_df,
-                'shape': predictions_df.shape
+                'predictions': result_df.to_dict('records'),  # 转换为可序列化的字典列表
+                'shape': list(result_df.shape),  # 转换为列表
+                'columns': list(result_df.columns),  # 添加列名信息
+                'prediction_count': len(result_df)
             }
             
         except Exception as e:
@@ -347,6 +365,32 @@ class MachineLearningService:
             'mae': float(mean_absolute_error(y_true, y_pred)),
             'r2': float(r2_score(y_true, y_pred))
         }
+    
+    def _validate_model_params(self, model_type, params):
+        """验证模型参数的有效性，移除无效参数"""
+        if model_type not in self.models:
+            return params
+            
+        model_class = self.models[model_type]['class']
+        
+        # 获取模型类的有效参数
+        try:
+            # 创建一个临时实例来获取有效参数
+            temp_instance = model_class()
+            valid_params = temp_instance.get_params().keys()
+            
+            # 过滤掉无效参数
+            validated_params = {}
+            for key, value in params.items():
+                if key in valid_params:
+                    validated_params[key] = value
+                else:
+                    print(f"警告: 参数 '{key}' 对于模型 {model_type} 无效，已忽略")
+            
+            return validated_params
+        except Exception as e:
+            print(f"参数验证失败: {e}")
+            return params
     
     def _get_grid_search_params(self, model_type, user_params):
         """Get parameters for grid search"""
