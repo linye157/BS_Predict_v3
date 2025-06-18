@@ -2,3 +2,6 @@ data
 streamlit_Predict
 vue-admin-design/node_modules
 flask_backend/models
+flask_backend/modules/__pycache__
+flask_backend/reports
+参考文件
