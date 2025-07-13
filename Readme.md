@@ -116,8 +116,6 @@ BS_Predict_v4/
 
 - **数据可视化**: 分布图、相关性矩阵、散点图等
 - **模型可视化**: 预测图、残差图、特征重要性等
-- **交互式图表**: 基于Plotly的动态图表
-- **多种格式**: 支持Plotly和Matplotlib两种图表
 
 #### 报表 (Reports.vue)
 
@@ -202,7 +200,6 @@ npm run serve
 - **scikit-learn**: 机器学习
 - **XGBoost**: 梯度提升算法
 - **matplotlib/seaborn**: 数据可视化
-- **plotly**: 交互式图表
 - **reportlab**: PDF报表生成
 
 ### 前端
