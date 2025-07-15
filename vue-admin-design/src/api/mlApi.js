@@ -109,7 +109,8 @@ export const trainModel = (params) => {
   return api({
     url: '/api/ml/train',
     method: 'post',
-    data: params
+    data: params,
+    timeout: 600000  // 10分钟超时，适用于大数据集训练
   })
   .then(response => {
     console.log('训练响应成功:', response.status);

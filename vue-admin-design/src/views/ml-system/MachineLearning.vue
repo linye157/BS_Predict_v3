@@ -609,6 +609,29 @@ export default {
         return
       }
       
+      // 检查数据规模并给出提示
+      try {
+        const statusResponse = await getSystemStatus()
+        if (statusResponse.train_data_shape) {
+          const dataSize = statusResponse.train_data_shape[0]
+          if (dataSize > 15000) {
+            const modelNames = {
+              'LinearRegression': '线性回归',
+              'RandomForest': '随机森林',
+              'GradientBoosting': 'GBR模型',
+              'XGBoost': 'XGBR模型',
+              'SVR': '支持向量机',
+              'MLP': '人工神经网络'
+            }
+            const modelName = modelNames[this.trainForm.model_type] || this.trainForm.model_type
+            
+            this.$message.info(`检测到大数据集(${dataSize}条数据)，${modelName}训练可能需要较长时间，请耐心等待...`)
+          }
+        }
+      } catch (e) {
+        console.log('无法获取数据状态:', e)
+      }
+      
       this.loading.train = true
       try {
         // 处理MLP的隐藏层参数
@@ -631,7 +654,15 @@ export default {
         }
       } catch (error) {
         console.error('模型训练失败:', error)
-        this.$message.error('模型训练失败: ' + (error.message || '未知错误'))
+        let errorMessage = '模型训练失败: '
+        
+        if (error.message && error.message.includes('timeout')) {
+          errorMessage += '训练超时，请尝试使用较小的数据集或简化模型参数'
+        } else {
+          errorMessage += error.message || '未知错误'
+        }
+        
+        this.$message.error(errorMessage)
       } finally {
         this.loading.train = false
       }
