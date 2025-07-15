@@ -116,6 +116,121 @@ class AutoMLService:
             }
         }
     
+    def _get_optimized_automl_config(self, data_size):
+        """为大数据集优化AutoML配置"""
+        if data_size > 20000:
+            # 超大数据集：极简参数
+            return {
+                'LinearRegression': {
+                    'model': LinearRegression,
+                    'params': {
+                        'fit_intercept': [True]
+                    }
+                },
+                'RandomForest': {
+                    'model': RandomForestRegressor,
+                    'params': {
+                        'n_estimators': [30],
+                        'max_depth': [8],
+                        'n_jobs': [-1]
+                    }
+                },
+                'GradientBoosting': {
+                    'model': GradientBoostingRegressor,
+                    'params': {
+                        'n_estimators': [30],
+                        'learning_rate': [0.15],
+                        'max_depth': [4]
+                    }
+                },
+                'XGBoost': {
+                    'model': xgb.XGBRegressor,
+                    'params': {
+                        'n_estimators': [30],
+                        'learning_rate': [0.15],
+                        'max_depth': [4],
+                        'n_jobs': [-1],
+                        'tree_method': ['hist']
+                    }
+                },
+                'SVR': {
+                    'model': SVR,
+                    'params': {
+                        'C': [1],
+                        'gamma': ['scale'],
+                        'kernel': ['rbf'],
+                        'cache_size': [1000]
+                    }
+                },
+                'MLP': {
+                    'model': MLPRegressor,
+                    'params': {
+                        'hidden_layer_sizes': [(30,)],
+                        'activation': ['relu'],
+                        'alpha': [0.001],
+                        'max_iter': [150],
+                        'early_stopping': [True],
+                        'validation_fraction': [0.1]
+                    }
+                }
+            }
+        elif data_size > 10000:
+            # 大数据集：简化参数
+            return {
+                'LinearRegression': {
+                    'model': LinearRegression,
+                    'params': {
+                        'fit_intercept': [True]
+                    }
+                },
+                'RandomForest': {
+                    'model': RandomForestRegressor,
+                    'params': {
+                        'n_estimators': [40],
+                        'max_depth': [10],
+                        'n_jobs': [-1]
+                    }
+                },
+                'GradientBoosting': {
+                    'model': GradientBoostingRegressor,
+                    'params': {
+                        'n_estimators': [40],
+                        'learning_rate': [0.1],
+                        'max_depth': [5]
+                    }
+                },
+                'XGBoost': {
+                    'model': xgb.XGBRegressor,
+                    'params': {
+                        'n_estimators': [40],
+                        'learning_rate': [0.1],
+                        'max_depth': [5],
+                        'n_jobs': [-1],
+                        'tree_method': ['hist']
+                    }
+                },
+                'SVR': {
+                    'model': SVR,
+                    'params': {
+                        'C': [1],
+                        'gamma': ['scale'],
+                        'kernel': ['rbf']
+                    }
+                },
+                'MLP': {
+                    'model': MLPRegressor,
+                    'params': {
+                        'hidden_layer_sizes': [(50,)],
+                        'activation': ['relu'],
+                        'alpha': [0.001],
+                        'max_iter': [200]
+                    }
+                }
+            }
+        else:
+            # 小数据集：使用快速配置
+            return self.fast_models_config
+    
     def run_automl(self, train_data, test_data, params):
         """Run automated machine learning"""
         try:
@@ -126,6 +241,10 @@ class AutoMLService:
             X_train = train_data[feature_columns]
             y_train = train_data[target_columns]
             
+            # 检测数据大小并进行优化
+            data_size = len(train_data)
+            print(f"AutoML训练数据大小: {data_size}")
+            
             # AutoML configuration
             search_method = params.get('search_method', 'grid')  # 'grid' or 'random'
             cv_folds = params.get('cv_folds', 5)
@@ -133,15 +252,27 @@ class AutoMLService:
             training_mode = params.get('training_mode', 'fast')  # 'fast' or 'thorough'
             max_iter = params.get('max_iter', 50)  # for RandomizedSearchCV
             
-            # 选择模型配置
-            if training_mode == 'fast':
-                models_config = self.fast_models_config
-                print(f"使用快速模式训练")
+            # 根据数据大小动态调整参数
+            if data_size > 15000:
+                cv_folds = min(cv_folds, 3)
+                max_iter = min(max_iter, 20)
+                training_mode = 'fast'
+                print(f"大数据集检测，优化参数: CV折数={cv_folds}, 最大迭代={max_iter}")
+            
+            if training_mode == 'fast' or data_size > 10000:
+                models_config = self._get_optimized_automl_config(data_size)
+                print(f"使用优化快速模式训练")
             else:
                 models_config = self.models_config
                 print(f"使用完整模式训练")
                 
             models_to_try = params.get('models', list(models_config.keys()))
+            
+            # 去重并排序，确保没有重复训练
+            models_to_try = list(set(models_to_try))
+            models_to_try.sort()  # 保持一致的训练顺序
+            
+            print(f"将要训练的模型: {models_to_try}")
             
             results = {}
             best_models = {}
@@ -154,6 +285,18 @@ class AutoMLService:
                 
                 print(f"正在为目标 {target_col} 运行AutoML...")
                 
+                # 对大数据集进行采样以加速训练
+                if data_size > 15000:
+                    # 使用采样数据进行超参数搜索
+                    sample_size = min(10000, data_size // 2)
+                    sample_indices = np.random.choice(len(X_train), sample_size, replace=False)
+                    X_sample = X_train.iloc[sample_indices]
+                    y_sample = y_target.iloc[sample_indices]
+                    print(f"  大数据集采样训练: 使用{sample_size}样本进行超参数搜索")
+                else:
+                    X_sample = X_train
+                    y_sample = y_target
+                
                 for model_name in models_to_try:
                     if model_name not in models_config:
                         continue
@@ -163,15 +306,18 @@ class AutoMLService:
                         base_model = model_config['model']()
                         param_grid = model_config['params']
                         
+                        # 动态调整并行度
+                        n_jobs_setting = 1 if data_size > 15000 else -1
+                        
                         # Choose search method
                         if search_method == 'random':
                             search = RandomizedSearchCV(
                                 base_model,
                                 param_grid,
-                                n_iter=min(max_iter, 20),  # 限制最大迭代次数
+                                n_iter=min(max_iter, 15),  # 进一步限制迭代次数
                                 cv=cv_folds,
                                 scoring=scoring,
-                                n_jobs=1,  # 限制并行度避免资源竞争
+                                n_jobs=n_jobs_setting,
                                 random_state=42,
                                 verbose=0
                             )
@@ -181,22 +327,41 @@ class AutoMLService:
                                 param_grid,
                                 cv=cv_folds,
                                 scoring=scoring,
-                                n_jobs=1,  # 限制并行度
+                                n_jobs=n_jobs_setting,
                                 verbose=0
                             )
                         
-                        # Fit the search
-                        search.fit(X_train, y_target)
+                        # Fit the search on sample data
+                        search.fit(X_sample, y_sample)
                         
                         # Get best results
                         best_estimator = search.best_estimator_
                         best_params = search.best_params_
                         best_cv_score = search.best_score_
                         
-                        # Make predictions for evaluation
-                        y_train_pred = best_estimator.predict(X_train)
-                        train_r2 = r2_score(y_target, y_train_pred)
-                        train_mse = mean_squared_error(y_target, y_train_pred)
+                        # 如果使用了采样，在全数据上重新训练最佳模型
+                        if data_size > 15000 and len(X_sample) < len(X_train):
+                            print(f"    在全数据上重新训练{model_name}...")
+                            # 创建新的模型实例并用最佳参数训练
+                            final_model = model_config['model'](**best_params)
+                            final_model.fit(X_train, y_target)
+                            best_estimator = final_model
+                        
+                        # Make predictions for evaluation - 对大数据集采样评估
+                        if data_size > 20000:
+                            # 使用采样数据评估性能，避免内存问题
+                            eval_size = min(5000, data_size // 4)
+                            eval_indices = np.random.choice(len(X_train), eval_size, replace=False)
+                            X_eval = X_train.iloc[eval_indices]
+                            y_eval = y_target.iloc[eval_indices]
+                            y_train_pred = best_estimator.predict(X_eval)
+                            train_r2 = r2_score(y_eval, y_train_pred)
+                            train_mse = mean_squared_error(y_eval, y_train_pred)
+                            print(f"    使用{eval_size}样本评估性能")
+                        else:
+                            y_train_pred = best_estimator.predict(X_train)
+                            train_r2 = r2_score(y_target, y_train_pred)
+                            train_mse = mean_squared_error(y_target, y_train_pred)
                         
                         model_result = {
                             'model_name': model_name,

@@ -37,6 +37,17 @@
           :closable="false"
           style="margin-bottom: 20px;"
         />
+        
+        <!-- 大数据集优化提示 -->
+        <el-alert
+          v-if="systemStatus.data_loaded && systemStatus.data_info && systemStatus.data_info.total_rows > 15000"
+          :title="`大数据集检测 (${systemStatus.data_info.total_rows} 行)`"
+          :description="getDataSizeOptimizationTip()"
+          type="info"
+          :closable="false"
+          style="margin-bottom: 20px;"
+        />
+        
         <el-form-item label="目标列选择" required>
           <el-select 
             v-model="automlForm.target_columns" 
@@ -72,9 +83,9 @@
 
         <el-form-item label="评估指标">
           <el-select v-model="automlForm.scoring">
-            <el-option label="负均方误差 (neg_mean_squared_error)" value="neg_mean_squared_error" />
-            <el-option label="R² 分数 (r2)" value="r2" />
-            <el-option label="负平均绝对误差 (neg_mean_absolute_error)" value="neg_mean_absolute_error" />
+            <el-option label="CV分数 (交叉验证)" value="neg_mean_squared_error" />
+            <el-option label="R² 决定系数" value="r2" />
+            <el-option label="RMSE 均方根误差" value="rmse" />
           </el-select>
         </el-form-item>
 
@@ -158,6 +169,7 @@
       />
       
       <div style="margin-bottom: 20px; text-align: right;">
+
         <el-button 
           type="primary" 
           @click="downloadCurrentModel"
@@ -239,21 +251,117 @@
               style="margin-bottom: 20px;"
             />
             
-            <div class="performance-chart">
-              <!-- 使用计算属性过滤成功的模型 -->
-              <el-progress 
-                v-for="modelData in getSuccessfulModels(targetResults.models)" 
-                :key="modelData.name"
-                :text-inside="true" 
-                :stroke-width="26" 
-                :percentage="modelData.percentage"
-                :status="modelData.status"
-                style="margin-bottom: 10px;"
-              >
-                <template slot-scope="{ percentage }">
-                  {{ modelData.displayName }}: {{ percentage }}% ({{ modelData.metricName }} = {{ modelData.primaryValue }})
-                </template>
-              </el-progress>
+            <!-- 调试信息 (开发模式下显示) -->
+            <el-alert
+              v-if="!targetResults || !targetResults.models"
+              title="数据异常"
+              :description="`目标 ${target} 的数据结构异常: ${JSON.stringify(targetResults)}`"
+              type="error"
+              :closable="false"
+              style="margin-bottom: 20px;"
+            />
+            
+            <div class="performance-chart" style="width: 100%;">
+              <!-- 成功训练的模型 - 表格形式显示 -->
+              <div v-if="getModelPerformanceData(targetResults.models).length > 0" style="width: 100%">
+                <el-table 
+                  :data="getModelPerformanceData(targetResults.models)" 
+                  border 
+                  stripe
+                  style="width: 100%; margin-bottom: 20px;"
+                  :default-sort="{prop: 'metrics.train_r2', order: 'descending'}"
+                  class="automl-performance-table"
+                >
+                  <el-table-column prop="displayName" label="模型名称" min-width="15%" align="center">
+                    <template slot-scope="scope">
+                      <el-tag :type="scope.$index === 0 ? 'success' : 'info'" size="small">
+                        {{ scope.row.displayName }}
+                      </el-tag>
+                    </template>
+                  </el-table-column>
+                  
+                  <el-table-column prop="metrics.cv_score" label="CV分数" min-width="12%" align="center" sortable>
+                    <template slot-scope="scope">
+                      <span class="metric-value">{{ scope.row.metrics.cv_score }}</span>
+                    </template>
+                  </el-table-column>
+                  
+                  <el-table-column prop="metrics.train_r2" label="训练R²" min-width="12%" align="center" sortable>
+                    <template slot-scope="scope">
+                      <span 
+                        class="metric-value"
+                        :class="getR2ScoreClass(scope.row.metrics.train_r2)"
+                      >
+                        {{ scope.row.metrics.train_r2 }}
+                      </span>
+                    </template>
+                  </el-table-column>
+                  
+                  <el-table-column prop="metrics.train_rmse" label="训练RMSE" min-width="15%" align="center" sortable>
+                    <template slot-scope="scope">
+                      <span class="metric-value">{{ scope.row.metrics.train_rmse }}</span>
+                    </template>
+                  </el-table-column>
+                  
+                  <el-table-column prop="metrics.test_r2" label="测试R²" min-width="12%" align="center" sortable>
+                    <template slot-scope="scope">
+                      <span 
+                        v-if="scope.row.metrics.test_r2 !== null"
+                        class="metric-value"
+                        :class="getR2ScoreClass(scope.row.metrics.test_r2)"
+                      >
+                        {{ scope.row.metrics.test_r2 }}
+                      </span>
+                      <span v-else class="metric-na">N/A</span>
+                    </template>
+                  </el-table-column>
+                  
+                  <el-table-column prop="metrics.test_rmse" label="测试RMSE" min-width="15%" align="center" sortable>
+                    <template slot-scope="scope">
+                      <span 
+                        v-if="scope.row.metrics.test_rmse !== null"
+                        class="metric-value"
+                      >
+                        {{ scope.row.metrics.test_rmse }}
+                      </span>
+                      <span v-else class="metric-na">N/A</span>
+                    </template>
+                  </el-table-column>
+                  
+                  <el-table-column label="性能等级" min-width="12%" align="center">
+                    <template slot-scope="scope">
+                      <el-tag 
+                        :type="getPerformanceLevel(scope.row.metrics.train_r2).type"
+                        size="small"
+                      >
+                        {{ getPerformanceLevel(scope.row.metrics.train_r2).text }}
+                      </el-tag>
+                    </template>
+                  </el-table-column>
+                </el-table>
+              </div>
+              
+              <!-- 当没有成功的模型时显示提示 -->
+              <div v-else-if="getFailedModels(targetResults.models).length > 0">
+                <el-alert
+                  title="所有模型训练失败"
+                  :description="`目标 ${target} 的所有模型都训练失败，请检查数据质量或调整参数`"
+                  type="warning"
+                  :closable="false"
+                  style="margin-bottom: 20px;"
+                />
+              </div>
+              
+              <!-- 当完全没有模型数据时 -->
+              <div v-else>
+                <el-alert
+                  title="无模型数据"
+                  :description="`目标 ${target} 没有任何模型训练数据，可能数据加载有问题`"
+                  type="error"
+                  :closable="false"
+                  style="margin-bottom: 20px;"
+                />
+              </div>
               
               <!-- 显示失败的模型 -->
               <div v-if="getFailedModels(targetResults.models).length > 0" style="margin-top: 20px;">
@@ -271,27 +379,61 @@
             
             <!-- 性能指标说明 -->
             <div class="metrics-explanation" style="margin-top: 20px;">
-              <h5>性能指标说明:</h5>
+              <h5>📊 性能指标详解:</h5>
               <el-row :gutter="20">
-                <el-col :span="8">
-                  <div class="metric-item">
-                    <strong>R² (决定系数)</strong>
-                    <p>衡量模型解释数据变异的比例，范围0-1，越接近1越好</p>
-                  </div>
-                </el-col>
-                <el-col :span="8">
+                <el-col :span="6">
                   <div class="metric-item">
                     <strong>CV分数</strong>
-                    <p>交叉验证平均分数，反映模型的泛化能力</p>
+                    <p>交叉验证分数，越小越好（负值，接近0最佳）</p>
+                    <div class="metric-range">
+                      <el-tag size="mini" type="success">&lt; -0.1 优秀</el-tag>
+                      <el-tag size="mini" type="warning">&lt; -1.0 一般</el-tag>
+                    </div>
                   </div>
                 </el-col>
-                <el-col :span="8">
+                <el-col :span="6">
                   <div class="metric-item">
-                    <strong>RMSE</strong>
-                    <p>均方根误差，数值越小表示预测越准确</p>
+                    <strong>R² 决定系数</strong>
+                    <p>模型拟合效果，范围0-1，越接近1越好</p>
+                    <div class="metric-range">
+                      <el-tag size="mini" type="success">&ge; 0.9 优秀</el-tag>
+                      <el-tag size="mini" type="warning">&ge; 0.8 良好</el-tag>
+                      <el-tag size="mini" type="info">&ge; 0.6 一般</el-tag>
+                    </div>
+                  </div>
+                </el-col>
+                <el-col :span="6">
+                  <div class="metric-item">
+                    <strong>RMSE 均方根误差</strong>
+                    <p>预测误差大小，数值越小表示预测越准确</p>
+                    <div class="metric-range">
+                      <el-tag size="mini" type="success">小 = 好</el-tag>
+                      <el-tag size="mini" type="danger">大 = 差</el-tag>
+                    </div>
+                  </div>
+                </el-col>
+                <el-col :span="6">
+                  <div class="metric-item">
+                    <strong>性能等级</strong>
+                    <p>综合评价，基于R²分数自动评级</p>
+                    <div class="metric-range">
+                      <el-tag size="mini" type="success">优秀/良好</el-tag>
+                      <el-tag size="mini" type="warning">一般</el-tag>
+                      <el-tag size="mini" type="danger">较差</el-tag>
+                    </div>
                   </div>
                 </el-col>
               </el-row>
+              
+              <!-- 使用提示 -->
+              <div class="usage-tips" style="margin-top: 15px;">
+                <el-alert
+                  title="💡 使用建议"
+                  description="选择模型时请综合考虑所有指标：R²反映拟合效果，RMSE反映预测精度，CV分数反映泛化能力。一般优先选择R²最高且RMSE较小的模型。"
+                  type="info"
+                  :closable="false"
+                />
+              </div>
             </div>
             
             <div style="margin-bottom: 30px;"></div>
@@ -381,7 +523,8 @@
 import { 
   runAutoML,
   getDataPreview,
-  downloadModel
+  downloadModel,
+  getSystemStatus
 } from '@/api/mlApi'
 
 export default {
@@ -389,6 +532,10 @@ export default {
   data() {
     return {
       dataColumns: [],
+      systemStatus: {
+        data_loaded: false,
+        data_info: null
+      },
       automlForm: {
         target_columns: [],
         search_method: 'grid',
@@ -415,68 +562,68 @@ export default {
     await this.loadDataInfo()
   },
   methods: {
-    // 获取训练成功的模型数据
-    getSuccessfulModels(models) {
-      if (!models) return []
+    getDataSizeOptimizationTip() {
+      if (!this.systemStatus.data_info) return ''
       
-      const scoring = this.automlResult?.model_info?.automl_config?.scoring || 'neg_mean_squared_error'
+      const dataSize = this.systemStatus.data_info.total_rows || 0
+      if (dataSize > 20000) {
+        return '系统已自动启用超大数据集优化模式：减少CV折数至3折，使用采样训练，建议选择随机搜索以减少训练时间'
+      } else if (dataSize > 15000) {
+        return '系统已自动启用大数据集优化模式：优化模型参数，减少CV折数，预计训练时间3-8分钟'
+      }
+      return ''
+    },
+    
+    // 获取模型性能对比数据 - 重构为直观的指标显示
+    getModelPerformanceData(models) {
+      if (!models) {
+        console.warn('AutoML: models数据为空')
+        return []
+      }
       
-      return Object.keys(models)
+      const successfulModels = Object.keys(models)
         .filter(modelName => !models[modelName].error)
+      
+      if (successfulModels.length === 0) {
+        console.warn('AutoML: 没有成功训练的模型')
+        return []
+      }
+      
+      return successfulModels
         .map(modelName => {
           const modelResult = models[modelName]
           
-          // 根据评估指标选择显示的数据
-          let primaryValue, displayValue, metricName, percentage, sortValue
-          
-          if (scoring === 'r2') {
-            primaryValue = modelResult.train_r2 || 0
-            displayValue = primaryValue.toFixed(4)
-            metricName = 'R²'
-            percentage = Math.round(Math.max(0, Math.min(100, primaryValue * 100)))
-            sortValue = primaryValue
-          } else if (scoring === 'neg_mean_squared_error') {
-            primaryValue = modelResult.cv_score || 0
-            displayValue = primaryValue.toFixed(4)
-            metricName = 'MSE'
-            // MSE越小越好，转换为百分比显示（取倒数并标准化）
-            const maxMSE = 100 // 假设最大MSE为100
-            percentage = Math.round(Math.max(0, Math.min(100, (1 - primaryValue / maxMSE) * 100)))
-            sortValue = -primaryValue // 负值排序，越小越好
-          } else if (scoring === 'neg_mean_absolute_error') {
-            primaryValue = modelResult.cv_score || 0
-            displayValue = primaryValue.toFixed(4)
-            metricName = 'MAE'
-            // MAE越小越好，转换为百分比显示
-            const maxMAE = 50 // 假设最大MAE为50
-            percentage = Math.round(Math.max(0, Math.min(100, (1 - primaryValue / maxMAE) * 100)))
-            sortValue = -primaryValue // 负值排序，越小越好
-          } else {
-            // 默认使用R²
-            primaryValue = modelResult.train_r2 || 0
-            displayValue = primaryValue.toFixed(4)
-            metricName = 'R²'
-            percentage = Math.round(Math.max(0, Math.min(100, primaryValue * 100)))
-            sortValue = primaryValue
-          }
+          // 提取关键性能指标
+          const cvScore = modelResult.cv_score || 0
+          const trainR2 = modelResult.train_r2 || 0
+          const trainRMSE = modelResult.train_rmse || 0
+          const testR2 = modelResult.test_r2 || null
+          const testRMSE = modelResult.test_rmse || null
           
           return {
             name: modelName,
             displayName: this.getModelDisplayName(modelName),
-            percentage: percentage,
-            primaryValue: displayValue,
-            metricName: metricName,
-            status: this.getProgressStatus(primaryValue, scoring),
-            modelResult: modelResult,
-            sortValue: sortValue
+            metrics: {
+              cv_score: Number(cvScore.toFixed(4)),
+              train_r2: Number(trainR2.toFixed(4)),
+              train_rmse: Number(trainRMSE.toFixed(4)),
+              test_r2: testR2 ? Number(testR2.toFixed(4)) : null,
+              test_rmse: testRMSE ? Number(testRMSE.toFixed(4)) : null
+            },
+            // 用于排序的主要指标 (R²越高越好)
+            sortValue: trainR2,
+            modelResult: modelResult
           }
         })
-        .sort((a, b) => b.sortValue - a.sortValue) // 按性能排序
+        .sort((a, b) => b.sortValue - a.sortValue) // 按R²降序排序
     },
     
     // 获取训练失败的模型数据
     getFailedModels(models) {
-      if (!models) return []
+      if (!models) {
+        console.warn('AutoML: getFailedModels models数据为空')
+        return []
+      }
       
       return Object.keys(models)
         .filter(modelName => models[modelName].error)
@@ -486,8 +633,76 @@ export default {
           error: models[modelName].error || '训练失败'
         }))
     },
+    
+    // 获取R²分数的样式类
+    getR2ScoreClass(r2Score) {
+      if (r2Score >= 0.9) return 'excellent-score'
+      if (r2Score >= 0.8) return 'good-score'
+      if (r2Score >= 0.6) return 'fair-score'
+      return 'poor-score'
+    },
+    
+    // 获取性能等级
+    getPerformanceLevel(r2Score) {
+      if (r2Score >= 0.9) return { type: 'success', text: '优秀' }
+      if (r2Score >= 0.8) return { type: 'success', text: '良好' }
+      if (r2Score >= 0.6) return { type: 'warning', text: '一般' }
+      return { type: 'danger', text: '较差' }
+    },
+    
+    // 调试方法：验证AutoML结果数据结构
+    debugAutoMLResults() {
+      if (!this.automlResult) {
+        console.error('AutoML结果为空')
+        return
+      }
+      
+      console.log('=== AutoML结果调试信息 ===')
+      console.log('完整结果:', this.automlResult)
+      console.log('目标列:', this.automlResult.target_columns)
+      console.log('特征列数量:', this.automlResult.feature_columns?.length)
+      
+      if (this.automlResult.results) {
+        Object.keys(this.automlResult.results).forEach(target => {
+          console.log(`\n--- 目标 ${target} ---`)
+          const targetData = this.automlResult.results[target]
+          console.log('目标数据结构:', targetData)
+          
+          if (targetData.models) {
+            console.log('模型数量:', Object.keys(targetData.models).length)
+            Object.keys(targetData.models).forEach(modelName => {
+              const modelData = targetData.models[modelName]
+              console.log(`  模型 ${modelName}:`, {
+                hasError: !!modelData.error,
+                error: modelData.error,
+                cv_score: modelData.cv_score,
+                train_r2: modelData.train_r2,
+                train_mse: modelData.train_mse
+              })
+            })
+          } else {
+            console.error(`目标 ${target} 没有models数据`)
+          }
+        })
+      } else {
+        console.error('AutoML结果中没有results数据')
+      }
+      
+      console.log('=== 调试信息结束 ===')
+    },
+    
     async loadDataInfo() {
       try {
+        // 获取系统状态
+        const statusResponse = await getSystemStatus()
+        if (statusResponse.success) {
+          this.systemStatus = statusResponse.status || {
+            data_loaded: false,
+            data_info: null
+          }
+        }
+        
+        // 获取数据预览
         const response = await getDataPreview()
         console.log('AutoML数据预览响应:', response)
         if (response.success && response.train_preview) {
@@ -516,6 +731,17 @@ export default {
       if (this.automlForm.models.length === 0) {
         this.$message.warning('请选择至少一个模型')
         return
+      }
+      
+      // 检查数据大小并给出提示
+      if (this.systemStatus.data_loaded && this.systemStatus.data_info) {
+        const dataSize = this.systemStatus.data_info.total_rows || 0
+        if (dataSize > 15000) {
+          this.$message.info(`检测到大数据集 (${dataSize}行)，系统将自动优化训练参数，预计需要较长时间，请耐心等待...`)
+        }
+        if (dataSize > 20000) {
+          this.$message.warning(`超大数据集 (${dataSize}行)，训练时间可能较长，建议使用随机搜索或减少模型数量`)
+        }
       }
       
       this.loading.automl = true
@@ -658,51 +884,14 @@ export default {
       return names[modelKey] || modelKey
     },
     
-    getProgressStatus(value, scoring = 'r2') {
-      if (scoring === 'r2') {
-        if (value >= 0.9) return 'success'
-        if (value >= 0.8) return 'warning'
-        return 'exception'
-      } else if (scoring === 'neg_mean_squared_error') {
-        // MSE越小越好
-        if (value <= 5) return 'success'
-        if (value <= 20) return 'warning'
-        return 'exception'
-      } else if (scoring === 'neg_mean_absolute_error') {
-        // MAE越小越好
-        if (value <= 2) return 'success'
-        if (value <= 10) return 'warning'
-        return 'exception'
-      } else {
-        // 默认按R²处理
-        if (value >= 0.9) return 'success'
-        if (value >= 0.8) return 'warning'
-        return 'exception'
-      }
-    },
+
     
     getChartTitle() {
-      const scoring = this.automlResult?.model_info?.automl_config?.scoring || 'neg_mean_squared_error'
-      const metricNames = {
-        'r2': 'R²决定系数',
-        'neg_mean_squared_error': '均方误差(MSE)',
-        'neg_mean_absolute_error': '平均绝对误差(MAE)'
-      }
-      return `模型性能对比 - ${metricNames[scoring] || '性能指标'}`
+      return '模型性能对比表 - 综合指标评估'
     },
     
     getChartDescription() {
-      const scoring = this.automlResult?.model_info?.automl_config?.scoring || 'neg_mean_squared_error'
-      
-      if (scoring === 'r2') {
-        return '以下图表显示各模型的R²决定系数，数值越高表示模型拟合效果越好。绿色表示优秀(≥90%)，橙色表示良好(≥80%)，红色表示需要改进(<80%)。'
-      } else if (scoring === 'neg_mean_squared_error') {
-        return '以下图表显示各模型的均方误差(MSE)，数值越小表示模型预测越准确。绿色表示优秀(≤5)，橙色表示良好(≤20)，红色表示需要改进(>20)。'
-      } else if (scoring === 'neg_mean_absolute_error') {
-        return '以下图表显示各模型的平均绝对误差(MAE)，数值越小表示模型预测越准确。绿色表示优秀(≤2)，橙色表示良好(≤10)，红色表示需要改进(>10)。'
-      } else {
-        return '以下图表显示各模型的性能指标，数值反映模型的预测效果。'
-      }
+      return '下表展示了各模型在训练和测试阶段的关键性能指标。表格按训练R²降序排列，可点击列标题重新排序。第一行（绿色标签）为当前最优模型。'
     },
     
     async refreshData() {
@@ -757,6 +946,8 @@ export default {
 <style scoped>
 .auto-ml {
   padding: 20px;
+  width: 100%;
+  box-sizing: border-box;
 }
 
 .page-header {
@@ -775,6 +966,7 @@ export default {
 
 .section-card {
   margin-bottom: 20px;
+  width: 100%;
 }
 
 .section-header {
@@ -850,5 +1042,76 @@ pre {
   color: #606266;
   font-size: 12px;
   line-height: 1.4;
+}
+
+/* 性能指标样式 */
+.metric-value {
+  font-weight: 600;
+  font-size: 14px;
+}
+
+.metric-na {
+  color: #C0C4CC;
+  font-style: italic;
+}
+
+.excellent-score {
+  color: #67C23A;
+  font-weight: bold;
+}
+
+.good-score {
+  color: #E6A23C;
+  font-weight: bold;
+}
+
+.fair-score {
+  color: #F56C6C;
+}
+
+.poor-score {
+  color: #F56C6C;
+  font-weight: bold;
+}
+
+.metric-range {
+  margin-top: 8px;
+}
+
+.metric-range .el-tag {
+  margin-right: 5px;
+  margin-bottom: 3px;
+}
+
+.performance-chart {
+  width: 100%;
+  overflow-x: auto;
+}
+
+.performance-chart .el-table {
+  box-shadow: 0 2px 12px 0 rgba(0, 0, 0, 0.1);
+  width: 100% !important;
+  table-layout: auto;
+}
+
+.performance-chart .el-table th {
+  background-color: #fafafa;
+  font-weight: 600;
+}
+
+.automl-performance-table {
+  width: 100% !important;
+}
+
+.automl-performance-table .el-table__body-wrapper {
+  width: 100% !important;
+}
+
+.automl-performance-table .el-table__header-wrapper {
+  width: 100% !important;
+}
+
+.usage-tips {
+  border-radius: 6px;
 }
 </style> 
