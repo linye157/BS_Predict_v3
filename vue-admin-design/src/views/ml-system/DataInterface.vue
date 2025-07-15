@@ -484,11 +484,16 @@ export default {
     async loadDefaultData() {
       this.loading.loadDefault = true
       try {
-        const response = await loadDefaultData()
-        // axios直接调用返回的数据在response.data中
-        const data = response.data
-        this.$message.success(data.message || '默认数据加载成功')
-        await this.getSystemStatus()
+        const data = await loadDefaultData()
+        console.log('加载默认数据响应:', data)
+        
+        if (data.success) {
+          this.$message.success(data.message || '默认数据加载成功')
+          // 加载成功后自动刷新系统状态
+          await this.getSystemStatus()
+        } else {
+          this.$message.error(data.message || '加载默认数据失败')
+        }
       } catch (error) {
         console.error('加载默认数据失败:', error)
         this.$message.error('加载默认数据失败，请检查网络和后端服务')

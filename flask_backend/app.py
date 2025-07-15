@@ -56,7 +56,40 @@ def health_check():
     """Health check endpoint"""
     return jsonify({'status': 'healthy', 'timestamp': datetime.now().isoformat()})
 
-
+@app.route('/api/system/status', methods=['GET'])
+def get_system_status():
+    """Get system status including data loading status and model information"""
+    try:
+        # 计算数据状态
+        train_data_loaded = app_state['train_data'] is not None
+        test_data_loaded = app_state['test_data'] is not None
+        
+        train_data_shape = None
+        test_data_shape = None
+        
+        if train_data_loaded:
+            train_data_shape = list(app_state['train_data'].shape)
+        if test_data_loaded:
+            test_data_shape = list(app_state['test_data'].shape)
+        
+        # 计算模型状态
+        trained_models = len(app_state['models'])
+        current_model = app_state.get('current_model')
+        training_history = len(app_state.get('training_history', []))
+        
+        status = {
+            'train_data_loaded': train_data_loaded,
+            'test_data_loaded': test_data_loaded,
+            'train_data_shape': train_data_shape,
+            'test_data_shape': test_data_shape,
+            'trained_models': trained_models,
+            'current_model': current_model,
+            'training_history': training_history
+        }
+        
+        return jsonify(status)
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
 
 # Data Processing endpoints
 @app.route('/api/data/load-default', methods=['POST'])
@@ -565,25 +598,6 @@ def download_report(report_id, file_format):
         print(f"下载报表异常: {str(e)}")
         print(traceback.format_exc())
         return jsonify({'error': str(e)}), 500
-
-# System status endpoints
-@app.route('/api/system/status', methods=['GET'])
-def get_system_status():
-    """Get current system status"""
-    status = {
-        'train_data_loaded': app_state['train_data'] is not None,
-        'test_data_loaded': app_state['test_data'] is not None,
-        'trained_models': len(app_state['models']),
-        'current_model': app_state['current_model'],
-        'training_history': len(app_state['training_history'])
-    }
-    
-    if app_state['train_data'] is not None:
-        status['train_data_shape'] = app_state['train_data'].shape
-    if app_state['test_data'] is not None:
-        status['test_data_shape'] = app_state['test_data'].shape
-        
-    return jsonify(status)
 
 # 特别处理OPTIONS请求
 @app.route('/api/data/upload', methods=['OPTIONS'])
