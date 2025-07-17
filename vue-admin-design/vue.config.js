@@ -15,6 +15,7 @@ module.exports = {
   },
   devServer: {
     host: '0.0.0.0', // 默认是 localhost,可不配置
+    // public: '192.168.124.10:8000', // 设置的公网IP，此外需要修改target为公网IP
     port: port, // 配置端口号
     open: true, // 启动是否打开浏览器
     overlay: { // 是否在浏览器上显示编译的 errors 或 warnings
@@ -27,7 +28,7 @@ module.exports = {
         changeOrigin: true,
         secure: false,
         ws: true, // 支持websocket
-        timeout: 300000, // 延长超时时间到5分钟
+        timeout: 600000, // 延长超时时间到10分钟
         pathRewrite: null, // 不进行路径重写
         onProxyReq: function(proxyReq, req, res) {
           // 打印请求详情以便调试
