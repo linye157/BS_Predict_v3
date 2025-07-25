@@ -29,6 +29,7 @@
 
 <script>
 import { getServerInfo } from '@/utils/apiCheck'
+import { API_BASE_URL } from '@/config/api'
 
 export default {
   name: 'ServerStatus',
@@ -36,7 +37,7 @@ export default {
     return {
       serverStatus: {
         isAvailable: true,
-        baseURL: 'http://202.118.28.237:5000',
+        baseURL: API_BASE_URL,
         message: ''
       },
       checking: false

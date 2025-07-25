@@ -1,23 +1,24 @@
 import request from '../request'
-import axios from 'axios'
+// 移除直接创建的axios实例，改用统一的request
+// import axios from 'axios'
+// import { API_CONFIG } from '@/config/api'
 
-// 创建axios实例，使用相对URL
-const api = axios.create({
-  baseURL: 'http://202.118.28.237:5000', // 使用空字符串作为基础URL，依赖Vue代理
-  timeout: 120000, // 2分钟超时
-  headers: {
-    'Content-Type': 'application/json',
-    'Accept': 'application/json'
-  }
-})
+// 移除独立的axios实例创建
+// const api = axios.create({
+//   baseURL: API_CONFIG.baseURL,
+//   timeout: API_CONFIG.timeout.upload,
+//   headers: {
+//     'Content-Type': 'application/json',
+//     'Accept': 'application/json'
+//   }
+// })
 
 // 系统状态
 export const getSystemStatus = () => {
-  return api({
+  return request({
     url: '/api/system/status',
     method: 'get'
   })
-  .then(response => response.data)
   .catch(error => {
     console.error('获取系统状态失败:', error);
     return { success: false, message: error.message || '获取系统状态失败' };
@@ -26,11 +27,10 @@ export const getSystemStatus = () => {
 
 // 数据处理相关API
 export const loadDefaultData = () => {
-  return api({
+  return request({
     url: '/api/data/load-default',
     method: 'post'
   })
-  .then(response => response.data)
   .catch(error => {
     console.error('加载默认数据失败:', error);
     return { success: false, message: error.message || '加载默认数据失败' };
@@ -43,7 +43,7 @@ export const uploadData = (formData) => {
     console.log(`${key}: ${value instanceof File ? value.name : value}`);
   }
   
-  return api({
+  return request({
     url: '/api/data/upload',
     method: 'post',
     data: formData,
@@ -51,7 +51,6 @@ export const uploadData = (formData) => {
       'Content-Type': 'multipart/form-data'
     }
   })
-  .then(response => response.data)
   .catch(error => {
     console.error('上传数据失败:', error);
     return { success: false, message: error.message || '上传数据失败' };
@@ -59,11 +58,10 @@ export const uploadData = (formData) => {
 }
 
 export const getDataPreview = () => {
-  return api({
+  return request({
     url: '/api/data/preview',
     method: 'get'
   })
-  .then(response => response.data)
   .catch(error => {
     console.error('获取数据预览失败:', error);
     return { success: false, train_preview: { columns: [] } };
@@ -71,12 +69,11 @@ export const getDataPreview = () => {
 }
 
 export const preprocessData = (params) => {
-  return api({
+  return request({
     url: '/api/data/preprocess',
     method: 'post',
     data: params
   })
-  .then(response => response.data)
   .catch(error => {
     console.error('数据预处理失败:', error);
     return { success: false, message: error.message || '预处理失败' };
@@ -84,7 +81,7 @@ export const preprocessData = (params) => {
 }
 
 export const downloadData = (dataType, fileFormat) => {
-  return api({
+  return request({
     url: `/api/data/download/${dataType}/${fileFormat}`,
     method: 'get',
     responseType: 'blob'
@@ -93,11 +90,10 @@ export const downloadData = (dataType, fileFormat) => {
 
 // 机器学习相关API
 export const getAvailableModels = () => {
-  return api({
+  return request({
     url: '/api/ml/models',
     method: 'get'
   })
-  .then(response => response.data)
   .catch(error => {
     console.error('获取可用模型失败:', error);
     return { success: false, models: [] };
@@ -106,15 +102,15 @@ export const getAvailableModels = () => {
 
 export const trainModel = (params) => {
   console.log('发送训练请求，参数:', params);
-  return api({
+  return request({
     url: '/api/ml/train',
     method: 'post',
     data: params,
     timeout: 600000  // 10分钟超时，适用于大数据集训练
   })
   .then(response => {
-    console.log('训练响应成功:', response.status);
-    return response.data;
+    console.log('训练响应成功:', response);
+    return response;
   })
   .catch(error => {
     console.error('模型训练失败:', error);
@@ -135,12 +131,11 @@ export const trainModel = (params) => {
 }
 
 export const predictModel = (params) => {
-  return api({
+  return request({
     url: '/api/ml/predict',
     method: 'post',
     data: params
   })
-  .then(response => response.data)
   .catch(error => {
     console.error('模型预测失败:', error);
     return { success: false, message: error.message || '预测失败' };
@@ -148,12 +143,11 @@ export const predictModel = (params) => {
 }
 
 export const evaluateModel = (params) => {
-  return api({
+  return request({
     url: '/api/ml/evaluate',
     method: 'post',
     data: params
   })
-  .then(response => response.data)
   .catch(error => {
     console.error('模型评估失败:', error);
     return { success: false, message: error.message || '评估失败' };
@@ -162,11 +156,10 @@ export const evaluateModel = (params) => {
 
 // Stacking集成学习API
 export const getStackingModels = () => {
-  return api({
+  return request({
     url: '/api/stacking/models',
     method: 'get'
   })
-  .then(response => response.data)
   .catch(error => {
     console.error('获取Stacking模型失败:', error);
     return { success: false, base_models: [], meta_models: [] };
@@ -174,12 +167,12 @@ export const getStackingModels = () => {
 }
 
 export const trainStackingModel = (params) => {
-  return api({
+  return request({
     url: '/api/stacking/train',
     method: 'post',
-    data: params
+    data: params,
+    timeout: 600000  // 10分钟超时
   })
-  .then(response => response.data)
   .catch(error => {
     console.error('Stacking模型训练失败:', error);
     return { success: false, message: error.message || 'Stacking训练失败' };
@@ -188,13 +181,12 @@ export const trainStackingModel = (params) => {
 
 // AutoML相关API
 export const runAutoML = (params) => {
-  return api({
+  return request({
     url: '/api/automl/run',
     method: 'post',
     data: params,
     timeout: 600000  // 10分钟超时
   })
-  .then(response => response.data)
   .catch(error => {
     console.error('AutoML运行失败:', error);
     if (error.code === 'ECONNABORTED') {
@@ -206,12 +198,11 @@ export const runAutoML = (params) => {
 
 // 可视化相关API
 export const generateDataVisualization = (params) => {
-  return api({
+  return request({
     url: '/api/visualization/data',
     method: 'post',
     data: params
   })
-  .then(response => response.data)
   .catch(error => {
     console.error('生成数据可视化失败:', error);
     return { success: false, message: error.message || '生成数据可视化失败' };
@@ -219,12 +210,11 @@ export const generateDataVisualization = (params) => {
 }
 
 export const generateModelVisualization = (params) => {
-  return api({
+  return request({
     url: '/api/visualization/model',
     method: 'post',
     data: params
   })
-  .then(response => response.data)
   .catch(error => {
     console.error('生成模型可视化失败:', error);
     return { success: false, message: error.message || '生成模型可视化失败' };
@@ -233,12 +223,11 @@ export const generateModelVisualization = (params) => {
 
 // 报表相关API
 export const generateReport = (params) => {
-  return api({
+  return request({
     url: '/api/reports/generate',
     method: 'post',
     data: params
   })
-  .then(response => response.data)
   .catch(error => {
     console.error('生成报表失败:', error);
     return { success: false, message: error.message || '生成报表失败' };
@@ -246,11 +235,10 @@ export const generateReport = (params) => {
 }
 
 export const getReportsList = () => {
-  return api({
+  return request({
     url: '/api/reports/list',
     method: 'get'
   })
-  .then(response => response.data)
   .catch(error => {
     console.error('获取报表列表失败:', error);
     return { success: false, reports: [] };
@@ -258,7 +246,7 @@ export const getReportsList = () => {
 }
 
 export const downloadReport = (reportId, fileFormat) => {
-  return api({
+  return request({
     url: `/api/reports/download/${reportId}/${fileFormat}`,
     method: 'get',
     responseType: 'blob'
@@ -266,7 +254,7 @@ export const downloadReport = (reportId, fileFormat) => {
 }
 
 export const downloadReportFile = (reportId, fileFormat) => {
-  return api({
+  return request({
     url: `/api/reports/download/${reportId}/${fileFormat}`,
     method: 'get',
     responseType: 'blob'
@@ -274,11 +262,10 @@ export const downloadReportFile = (reportId, fileFormat) => {
 }
 
 export const deleteReport = (reportId) => {
-  return api({
+  return request({
     url: `/api/reports/${reportId}`,
     method: 'delete'
   })
-  .then(response => response.data)
   .catch(error => {
     console.error('删除报表失败:', error);
     return { success: false, message: error.message || '删除报表失败' };
@@ -287,11 +274,10 @@ export const deleteReport = (reportId) => {
 
 // 模型管理相关API
 export const getModelsList = () => {
-  return api({
+  return request({
     url: '/api/models/list',
     method: 'get'
   })
-  .then(response => response.data)
   .catch(error => {
     console.error('获取模型列表失败:', error);
     return { success: false, models: [] };
@@ -299,7 +285,7 @@ export const getModelsList = () => {
 }
 
 export const downloadModel = (modelId) => {
-  return api({
+  return request({
     url: `/api/models/download/${modelId}`,
     method: 'get',
     responseType: 'blob'

@@ -1,10 +1,12 @@
 import axios from 'axios'
 import { Message } from 'element-ui'
+import { API_CONFIG } from '@/config/api'
 
 // 创建axios实例
 const service = axios.create({
-  baseURL: 'http://202.118.28.237:5000', // 使用空字符串作为基础URL，完全依赖Vue代理处理
-  timeout: 60000, // 增加超时时间为60秒
+  // 不使用API_CONFIG.baseURL，让请求通过代理
+  // baseURL: API_CONFIG.baseURL, 
+  timeout: API_CONFIG.timeout.default, // 使用配置中的默认超时时间
   headers: {
     'Content-Type': 'application/json'
   }
@@ -18,6 +20,15 @@ service.interceptors.request.use(
     if (config.data) {
       console.log('Request Data:', config.data)
     }
+    
+    // 对于训练相关的长时间请求，自动设置更长的超时时间
+    if (config.url?.includes('/train') || config.url?.includes('/automl') || config.url?.includes('/stacking')) {
+      if (!config.timeout || config.timeout < 300000) { // 如果超时时间小于5分钟
+        config.timeout = 600000 // 设置为10分钟
+        console.log('设置长时间请求超时:', config.timeout, 'ms')
+      }
+    }
+    
     return config
   },
   error => {
@@ -87,14 +98,21 @@ service.interceptors.response.use(
       }
     } else if (error.request) {
       // 请求已发出，但没有收到响应
-      message = '网络连接超时，请检查网络或服务器状态'
+      if (error.code === 'ECONNABORTED') {
+        message = '请求超时，服务器可能正在处理大量数据，请稍后重试'
+      } else {
+        message = '网络连接超时，请检查网络或服务器状态'
+      }
     }
     
-    Message({
-      message: message,
-      type: 'error',
-      duration: 5 * 1000
-    })
+    // 只对非训练请求显示错误消息，训练请求的错误由组件自己处理
+    if (!error.config?.url?.includes('/train') && !error.config?.url?.includes('/automl') && !error.config?.url?.includes('/stacking')) {
+      Message({
+        message: message,
+        type: 'error',
+        duration: 5 * 1000
+      })
+    }
     
     return Promise.reject(error)
   }

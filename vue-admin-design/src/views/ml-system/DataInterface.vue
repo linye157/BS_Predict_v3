@@ -371,6 +371,7 @@ import {
   preprocessData, 
   downloadData 
 } from '@/api/mlApi'
+import { API_BASE_URL, getApiUrl, API_CONFIG } from '@/config/api'
 
 export default {
   name: 'DataInterface',
@@ -418,7 +419,7 @@ export default {
         
         // 创建一个Promise包装XHR请求
         const statusPromise = new Promise((resolve, reject) => {
-          xhr.open('GET', 'http://202.118.28.237:5000/api/system/status', true)
+          xhr.open('GET', getApiUrl(API_CONFIG.endpoints.system.status), true)
           
           xhr.onload = function() {
             if (xhr.status >= 200 && xhr.status < 300) {
@@ -567,7 +568,7 @@ export default {
         
         // 创建并配置XMLHttpRequest
         const xhr = new XMLHttpRequest()
-        xhr.open('POST', 'http://202.118.28.237:5000/api/data/upload', true)
+        xhr.open('POST', getApiUrl(API_CONFIG.endpoints.data.upload), true)
         
         // 设置事件处理器
         xhr.onreadystatechange = () => {
@@ -623,7 +624,7 @@ export default {
         
         // 创建一个Promise包装XHR请求
         const previewPromise = new Promise((resolve, reject) => {
-          xhr.open('GET', 'http://202.118.28.237:5000/api/data/preview', true)
+          xhr.open('GET', getApiUrl(API_CONFIG.endpoints.data.preview), true)
           
           xhr.onload = function() {
             if (xhr.status >= 200 && xhr.status < 300) {
@@ -686,7 +687,7 @@ export default {
         
         try {
           // 尝试fetch方式 - 但不向用户显示错误
-          const response = await fetch('http://202.118.28.237:5000/api/data/preprocess', {
+          const response = await fetch(getApiUrl(API_CONFIG.endpoints.data.preprocess), {
             method: 'POST',
             headers: {
               'Content-Type': 'application/json',
@@ -758,7 +759,7 @@ export default {
       try {
         const form = document.createElement('form')
         form.method = 'POST'
-        form.action = 'http://202.118.28.237:5000/api/data/preprocess'
+        form.action = getApiUrl(API_CONFIG.endpoints.data.preprocess)
         form.style.display = 'none'
         
         const input = document.createElement('input')
@@ -862,7 +863,7 @@ export default {
         
         // 使用XMLHttpRequest替代fetch测试后端连接
         const xhr = new XMLHttpRequest()
-        xhr.open('GET', 'http://202.118.28.237:5000/api/health', true)
+        xhr.open('GET', getApiUrl(API_CONFIG.endpoints.health), true)
         
         xhr.onreadystatechange = () => {
           if (xhr.readyState === 4) {
@@ -915,7 +916,7 @@ export default {
       const form = document.createElement('form')
       form.id = 'direct-upload-form'
       form.method = 'POST'
-      form.action = 'http://202.118.28.237:5000/api/data/upload'
+      form.action = getApiUrl(API_CONFIG.endpoints.data.upload)
       form.enctype = 'multipart/form-data'
       form.style.display = 'none'
       
