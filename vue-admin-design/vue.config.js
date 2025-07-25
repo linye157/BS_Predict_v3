@@ -4,7 +4,7 @@ const name = '智能轧钢力学性能预测与优化系统' // 网页标题titl
 const port = 8000 // 端口号
 
 module.exports = {
-  publicPath: './', // 部署应用包时的基本 url
+  publicPath: '/ral_ml', // 部署应用包时的基本 url
   outputDir: 'dist', // build 构建文件目录
   assetsDir: 'static', // 静态资源目录
   lintOnSave: process.env.NODE_ENV === 'development', // 仅在开发模式下进行 eslint 检测代码
