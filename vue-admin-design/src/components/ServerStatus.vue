@@ -36,7 +36,7 @@ export default {
     return {
       serverStatus: {
         isAvailable: true,
-        baseURL: process.env.VUE_APP_BASE_API || 'http://localhost:5000',
+        baseURL: 'http://202.118.28.237:5000',
         message: ''
       },
       checking: false

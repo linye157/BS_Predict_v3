@@ -3,7 +3,7 @@ import { Message } from 'element-ui'
 
 // 创建axios实例
 const service = axios.create({
-  baseURL: '', // 使用空字符串作为基础URL，完全依赖Vue代理处理
+  baseURL: 'http://202.118.28.237:5000', // 使用空字符串作为基础URL，完全依赖Vue代理处理
   timeout: 60000, // 增加超时时间为60秒
   headers: {
     'Content-Type': 'application/json'

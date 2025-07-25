@@ -3,7 +3,7 @@ import axios from 'axios'
 
 // 创建axios实例，使用相对URL
 const api = axios.create({
-  baseURL: '', // 使用空字符串作为基础URL，依赖Vue代理
+  baseURL: 'http://202.118.28.237:5000', // 使用空字符串作为基础URL，依赖Vue代理
   timeout: 120000, // 2分钟超时
   headers: {
     'Content-Type': 'application/json',

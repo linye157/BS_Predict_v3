@@ -6,7 +6,7 @@ import axios from 'axios'
  * @param {number} timeout - 超时时间（毫秒）
  * @returns {Promise<boolean>} - 服务是否可用
  */
-export const checkApiService = async (baseURL = 'http://localhost:5000', timeout = 5000) => {
+export const checkApiService = async (baseURL = 'http://202.118.28.237:5000', timeout = 5000) => {
   try {
     const response = await axios({
       url: `${baseURL}/api/health`,
@@ -26,7 +26,7 @@ export const checkApiService = async (baseURL = 'http://localhost:5000', timeout
  * @param {string} host - 主机地址
  * @returns {Promise<boolean>} - 端口是否开放
  */
-export const checkPort = async (port = 5000, host = 'localhost') => {
+export const checkPort = async (port = 5000, host = '202.118.28.237') => {
   try {
     const response = await fetch(`http://${host}:${port}`, {
       method: 'HEAD',
@@ -43,7 +43,7 @@ export const checkPort = async (port = 5000, host = 'localhost') => {
  * @param {string} baseURL - API基础地址
  * @returns {Promise<object>} - 服务器状态信息
  */
-export const getServerInfo = async (baseURL = 'http://localhost:5000') => {
+export const getServerInfo = async (baseURL = 'http://202.118.28.237:5000') => {
   const isAvailable = await checkApiService(baseURL)
   
   return {
