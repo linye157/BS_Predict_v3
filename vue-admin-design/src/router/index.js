@@ -1,6 +1,6 @@
 import Vue from 'vue'
 import Router from 'vue-router'
-import Layout from '../layout'
+// 移除Layout导入，因为不再需要布局
 import { asyncRoutes } from './routes'
 
 Vue.use(Router)
@@ -16,34 +16,23 @@ Vue.use(Router)
 
 export const constantRoutes = [
   {
-    path: '401',
+    path: '/401',
     name: '401',
     component: () => import('../views/error-page/401'),
     hidden: true,
     meta: { title: '401' }
   },
   {
-    path: '404',
+    path: '/404',
     name: '404',
     component: () => import('../views/error-page/404'),
     hidden: true,
     meta: { title: '404' }
   },
+  // 移除首页路由，改为重定向到第一个可用页面
   {
     path: '/',
-    name: 'Layout',
-    component: Layout,
-    redirect: '/home',
-    children: [{
-      path: 'home',
-      name: 'Home',
-      component: () => import('../views/Home'),
-      meta: {
-        title: '首页',
-        icon: 'vue-dsn-icon-index',
-        fixed: true
-      }
-    }]
+    redirect: '/data-interface'
   }
 ]
 
